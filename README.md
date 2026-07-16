@@ -1,6 +1,16 @@
-﻿# Roux N Y
+# Roux N Y
 
 Editorial workspace for source-grounded surgical MCQ production.
+
+## Run locally
+
+Use a current Node.js runtime (v20 or newer), then run:
+
+`powershell
+node server.mjs
+` 
+
+Open `http://localhost:4173`. The app is dependency-free at this stage, so no package install is required.
 
 ## Local storage
 
