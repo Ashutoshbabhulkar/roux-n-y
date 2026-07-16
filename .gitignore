@@ -1,0 +1,6 @@
+﻿# Local source files and generated publishing assets live on D:\Roux N Y\storage.
+# Keep any accidental local artifacts out of source control as well.
+storage/
+uploads/
+exports/
+.DS_Store

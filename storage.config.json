@@ -1,0 +1,10 @@
+﻿{
+  "storageRoot": "D:\\Roux N Y\\storage",
+  "directories": {
+    "uploads": "uploads",
+    "extractedAssets": "assets",
+    "exports": "exports",
+    "reports": "reports"
+  },
+  "note": "Keep source PDFs and generated publishing files outside the Git worktree."
+}
