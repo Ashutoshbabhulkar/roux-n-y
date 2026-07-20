@@ -16,33 +16,321 @@
     <nav>
       <a class="nav active" data-view="dashboard"><span>▦</span>Overview</a>
       <a class="nav" data-view="library"><span>▤</span>Source library</a>
-      <a class="nav" data-view="questions"><span>◈</span>Question bank <b>248</b></a>
+      <a class="nav" data-view="questions"><span>◈</span>Question bank <b id="nav-q-count">0</b></a>
       <a class="nav" data-view="coverage"><span>◎</span>Coverage audit</a>
       <a class="nav" data-view="exports"><span>⇩</span>Exports</a>
     </nav>
     <div class="sidebar-bottom">
-      <div class="safe"><span>✓</span><div><strong>Grounded generation</strong><small>Source-only mode active</small></div></div>
+      <div class="safe" id="global-api-status"><span>✓</span><div><strong>Grounded generation</strong><small id="global-api-status-text">Checking API connection...</small></div></div>
       <div class="profile"><div class="avatar">DR</div><div><strong>Dr. R. Mehta</strong><small>Editor-in-chief</small></div><span>⌄</span></div>
     </div>
   </aside>
   <main>
-    <header><div><p class="eyebrow">WEDNESDAY, 16 JULY</p><h1 id="page-title">Good morning, Dr. Mehta.</h1></div><div class="header-actions"><button class="icon-btn" aria-label="Notifications">♧<i></i></button><button class="primary" id="upload-open">+ Add source</button></div></header>
+    <header>
+      <div><p class="eyebrow" id="header-date">CURRENT WORKSPACE</p><h1 id="page-title">Good morning, Dr. Mehta.</h1></div>
+      <div id="header-processing-pill" class="header-processing-pill hidden" onclick="show('dashboard')" title="Click to view live processing details">
+        <span class="pulse-dot"></span>
+        <div class="pill-info">
+          <div class="pill-title-row">
+            <strong id="pill-title">Processing...</strong>
+            <span id="pill-progress-text">0%</span>
+          </div>
+          <small id="pill-meta">⏱ 00:00 · ⏳ Calc...</small>
+        </div>
+      </div>
+      <div class="header-actions"><button class="primary" id="upload-open">+ Add source</button></div>
+    </header>
 
     <section id="dashboard" class="view visible">
       <div class="hero"><div><p class="eyebrow light">YOUR CONTENT PIPELINE</p><h2>From textbook page<br>to <em>publication-ready.</em></h2><p>Every question is traceable to a precise source, figure, table, and page.</p><button class="hero-btn" id="hero-upload">Upload a textbook <span>→</span></button></div><div class="hero-graphic"><div class="scan-card top">P. 342 <b>ANATOMY</b><span></span></div><div class="scan-card middle">FIG. 26.3 <b>VASCULAR MAP</b><span></span></div><div class="question-chip">Q. 0248 <strong>Validated</strong></div><div class="orbit one"></div><div class="orbit two"></div></div></div>
-      <div class="metrics"><article><span class="metric-icon coral">◈</span><p>Questions in review</p><strong>248</strong><small class="up">↑ 32 this week</small></article><article><span class="metric-icon gold">◎</span><p>Average source coverage</p><strong>96.8<sup>%</sup></strong><small>Across 4 active texts</small></article><article><span class="metric-icon mint">✓</span><p>Approved this month</p><strong>1,426</strong><small class="up">↑ 18.4% vs June</small></article><article><span class="metric-icon blue">◌</span><p>Awaiting expert review</p><strong>71</strong><small>12 image-based</small></article></div>
-      <div class="grid-main"><section class="panel processing"><div class="panel-head"><div><p class="eyebrow">ACTIVE PROCESSING</p><h3>Bailey &amp; Love’s Short Practice of Surgery</h3><span>28th edition · Chapter 26 · Vascular surgery</span></div><button class="text-btn">View pipeline →</button></div><div class="process-row"><div class="book-cover">B<span>&amp;</span>L<small>28</small></div><div class="process-info"><div class="status"><span class="pulse"></span> Generating source-grounded questions <strong>72%</strong></div><div class="progress"><i></i></div><div class="stage-track"><span class="done">✓ Extract</span><span class="done">✓ Map concepts</span><span class="current">◌ Generate</span><span>Review</span></div></div></div><div class="source-stats"><span><b>184</b> pages parsed</span><span><b>36</b> figures isolated</span><span><b>21</b> tables indexed</span><span><b>312</b> concepts mapped</span></div></section>
-        <section class="panel activity"><div class="panel-head"><div><p class="eyebrow">EDITORIAL ACTIVITY</p><h3>Latest decisions</h3></div><button class="dots">•••</button></div><ul><li><span class="dot green"></span><div><b>Q-2471 approved</b><small>Acute mesenteric ischaemia · 2m ago</small></div><span class="initials">AM</span></li><li><span class="dot amber"></span><div><b>Figure crop flagged</b><small>Page 341 · requires edge review</small></div><span class="initials">RK</span></li><li><span class="dot blue"></span><div><b>43 new questions generated</b><small>Chapter 26 · 18m ago</small></div><span class="initials ai">AI</span></li></ul></section></div>
-      <section class="panel review"><div class="panel-head"><div><p class="eyebrow">PRIORITY REVIEW QUEUE</p><h3>Questions needing an expert eye</h3></div><button class="text-btn" data-view-link="questions">Open question bank →</button></div><div class="question-row"><span class="qnum">Q-2481</span><span class="badge image">IMAGE BASED</span><div class="qtext">Following endovascular repair, this CT finding most strongly suggests a type II endoleak?</div><span class="ref">Fig. 26.14 · p. 356</span><span class="difficulty">INI-SS</span><button class="review-btn">Review</button></div><div class="question-row"><span class="qnum">Q-2478</span><span class="badge case">CASE CLUSTER</span><div class="qtext">A 64-year-old with rest pain and a tissue-loss lesion has this angiographic pattern...</div><span class="ref">Table 26.8 · p. 349</span><span class="difficulty">Top 1%</span><button class="review-btn">Review</button></div></section>
+      
+      <div class="metrics">
+        <article><span class="metric-icon coral">◈</span><p>Questions in review</p><strong id="metric-review-count">0</strong><small>Awaiting clinical review</small></article>
+        <article><span class="metric-icon gold">◎</span><p>Average source coverage</p><strong id="metric-coverage-percent">0%</strong><small>Grounded segments covered</small></article>
+        <article><span class="metric-icon mint">✓</span><p>Approved questions</p><strong id="metric-approved-count">0</strong><small>Ready for publication</small></article>
+        <article><span class="metric-icon blue">◌</span><p>Total uploaded sources</p><strong id="metric-sources-count">0</strong><small>Active surgery texts</small></article>
+      </div>
+      
+      <div class="grid-main">
+        <section class="panel processing" id="active-processing-panel">
+          <!-- Rendered dynamically -->
+          <div class="empty-state-small">
+            <p>No active source processing. Upload a surgery textbook PDF to begin question generation.</p>
+          </div>
+        </section>
+        
+        <section class="panel activity">
+          <div class="panel-head"><div><p class="eyebrow">EDITORIAL ACTIVITY</p><h3>Latest decisions</h3></div><button class="dots">•••</button></div>
+          <ul id="activity-list">
+            <!-- Rendered dynamically -->
+            <li class="empty-list">No recent editorial activity.</li>
+          </ul>
+        </section>
+      </div>
+      
+      <section class="panel review">
+        <div class="panel-head"><div><p class="eyebrow">PRIORITY REVIEW QUEUE</p><h3>Questions needing an expert eye</h3></div><button class="text-btn" data-view-link="questions">Open question bank →</button></div>
+        <div id="priority-review-container">
+          <!-- Rendered dynamically -->
+          <div class="empty-state-list">
+            <p>All clear! No questions currently awaiting clinical review.</p>
+          </div>
+        </div>
+      </section>
     </section>
 
-    <section id="questions" class="view"><div class="view-heading"><div><p class="eyebrow">EDITORIAL WORKBENCH</p><h2>Question bank</h2></div><button class="primary">Export selected</button></div><div class="filters"><button class="filter selected">All questions <b>248</b></button><button class="filter">Needs review <b>71</b></button><button class="filter">Approved <b>177</b></button><span></span><button class="filter">Difficulty ⌄</button><button class="filter">Type ⌄</button></div><div class="question-table panel"><div class="table-head"><span>QUESTION</span><span>SOURCE</span><span>TYPE</span><span>STATUS</span></div><div class="table-item"><div><b>What is the most appropriate definitive intervention for...</b><small>Vascular surgery · Acute limb ischaemia</small></div><div>Bailey &amp; Love 28e<br><small>p. 338 · Table 26.2</small></div><div><span class="badge case">BEST NEXT STEP</span></div><div><span class="approved">● Approved</span></div></div><div class="table-item"><div><b>This CT angiogram most likely demonstrates which...</b><small>Vascular surgery · Aortic aneurysm</small></div><div>Bailey &amp; Love 28e<br><small>p. 356 · Fig. 26.14</small></div><div><span class="badge image">CT INTERPRETATION</span></div><div><span class="pending">● In review</span></div></div><div class="table-item"><div><b>Regarding thromboangiitis obliterans, which statement...</b><small>Vascular surgery · Peripheral arterial disease</small></div><div>Bailey &amp; Love 28e<br><small>p. 346</small></div><div><span class="badge neutral">TRUE STATEMENT</span></div><div><span class="pending">● In review</span></div></div></div></section>
+    <section id="questions" class="view">
+      <div class="view-heading"><div><p class="eyebrow">EDITORIAL WORKBENCH</p><h2>Question bank</h2></div><button class="primary" id="qbank-export-btn">Export questions</button></div>
+      <div class="filters" id="qbank-filters">
+        <button class="filter selected" data-filter="all">All questions <b id="filter-all-count">0</b></button>
+        <button class="filter" data-filter="review">Needs review <b id="filter-review-count">0</b></button>
+        <button class="filter" data-filter="approved">Approved <b id="filter-approved-count">0</b></button>
+        <button class="filter" data-filter="rejected">Rejected <b id="filter-rejected-count">0</b></button>
+      </div>
+      
+      <div id="bulk-toolbar" class="bulk-toolbar hidden">
+        <span id="bulk-count">0 questions selected</span>
+        <div class="bulk-actions">
+          <button class="bulk-btn approve-btn" id="bulk-approve-btn">✓ Approve Selected</button>
+          <button class="bulk-btn delete-btn" id="bulk-delete-btn">🗑 Delete Selected</button>
+        </div>
+      </div>
 
-    <section id="library" class="view"><div class="view-heading"><div><p class="eyebrow">SOURCE CONTROL</p><h2>Textbook library</h2></div><button class="primary" id="library-upload">+ Add source</button></div><div class="library-grid"><article class="source-card"><div class="large-book">B<span>&amp;</span>L</div><div><span class="approved">● Processing</span><h3>Bailey &amp; Love’s Short Practice of Surgery</h3><p>28th Edition · 1,502 pages</p><div class="progress"><i></i></div><small>72% indexed · 312 concepts mapped</small></div></article><article class="source-card muted"><div class="large-book sab">S</div><div><span class="approved">● Ready</span><h3>Sabiston Textbook of Surgery</h3><p>21st Edition · 2,112 pages</p><div class="progress full"><i></i></div><small>100% indexed · 2,486 questions</small></div></article></div></section>
-    <section id="coverage" class="view"><div class="view-heading"><div><p class="eyebrow">TRACEABILITY AUDIT</p><h2>Coverage report</h2></div><button class="primary">Download report</button></div><div class="coverage-card panel"><p class="eyebrow">CHAPTER 26 · VASCULAR SURGERY</p><div class="coverage-number">96.8<sup>%</sup></div><p>Coverage is calculated only when every identified source component has been addressed.</p><div class="coverage-bars"><div><span>Pages</span><i><b style="width:100%"></b></i><strong>184 / 184</strong></div><div><span>Figures</span><i><b style="width:94%"></b></i><strong>34 / 36</strong></div><div><span>Tables</span><i><b style="width:100%"></b></i><strong>21 / 21</strong></div><div><span>Algorithms</span><i><b style="width:89%"></b></i><strong>8 / 9</strong></div></div></div></section>
-    <section id="exports" class="view"><div class="view-heading"><div><p class="eyebrow">PUBLISHING</p><h2>Exports</h2></div></div><div class="export-grid"><button>CSV <small>Spreadsheet-ready</small><span>→</span></button><button>Excel <small>Editorial workbook</small><span>→</span></button><button>JSON <small>App integration</small><span>→</span></button><button>SQL <small>Database import</small><span>→</span></button></div></section>
+      <div class="question-table panel">
+        <div class="table-head"><span class="th-cb"><input type="checkbox" id="select-all-q" title="Select all visible"></span><span>QUESTION</span><span>SOURCE</span><span>TYPE</span><span>STATUS</span></div>
+        <div id="qbank-rows-container">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+    </section>
+
+    <section id="library" class="view">
+      <div class="view-heading"><div><p class="eyebrow">SOURCE CONTROL</p><h2>Textbook library</h2></div><button class="primary" id="library-upload">+ Add source</button></div>
+      <div class="library-grid" id="library-grid-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+    
+    <section id="coverage" class="view">
+      <div class="view-heading"><div><p class="eyebrow">TRACEABILITY AUDIT</p><h2>Coverage report</h2></div></div>
+      <div id="coverage-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+    
+    <section id="exports" class="view">
+      <div class="view-heading"><div><p class="eyebrow">PUBLISHING</p><h2>Exports</h2></div></div>
+      <div class="export-grid">
+        <button id="export-csv">CSV <small>Spreadsheet-ready</small><span>→</span></button>
+        <button id="export-excel">Excel <small>Editorial workbook (via CSV)</small><span>→</span></button>
+        <button id="export-json">JSON <small>App integration</small><span>→</span></button>
+        <button id="export-sql">SQL <small>Database import</small><span>→</span></button>
+      </div>
+    </section>
   </main>
-  <div class="modal-backdrop" id="modal"><div class="modal"><button class="close" id="modal-close">×</button><p class="eyebrow">NEW SOURCE</p><h2>Add a surgical textbook</h2><p>Your source is securely processed page by page. Generated questions remain grounded in its exact content.</p><label class="dropzone" id="dropzone"><input type="file" accept="application/pdf" id="file-input"><span>↑</span><b>Drop PDF here, or browse</b><small>PDF up to 2 GB · textbook images retained at 300 dpi</small></label><div class="modal-foot"><span>◉ Source-only generation enabled</span><button class="primary" id="start-processing" disabled>Start processing</button></div></div></div>
+  
+  <!-- Upload Source Modal -->
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <button class="close" id="modal-close">×</button>
+      <p class="eyebrow">NEW SOURCE</p>
+      <h2>Add a surgical textbook</h2>
+      <p>Your source is securely processed page by page. Generated questions remain grounded in its exact content.</p>
+      <label class="dropzone" id="dropzone">
+        <input type="file" accept="application/pdf" id="file-input">
+        <span>↑</span>
+        <b>Drop PDF here, or browse</b>
+        <small>PDF up to 2 GB · textbook images retained at 300 dpi</small>
+      </label>
+      <div class="form-group" style="margin: 15px 0 5px 0; text-align: left;">
+        <label for="page-range" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Page Range to Process (Optional)</label>
+        <input type="text" id="page-range" placeholder="Optional e.g. 1-10 (Leave blank to scan FULL PDF)" style="width: 100%; padding: 11px 14px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; font-size: 14px; background: var(--panel); color: var(--text); box-sizing: border-box;">
+      </div>
+      <div class="modal-foot">
+        <span id="api-status">◉ Checking API connection...</span>
+        <button class="primary" id="start-processing" disabled>Start processing</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generated MCQs Completion Popup Modal -->
+  <div class="modal-backdrop" id="completion-modal">
+    <div class="modal edit-modal-content">
+      <button class="close" id="completion-close">×</button>
+      <p class="eyebrow" style="color: var(--mint); margin-bottom: 4px;">✓ AI GENERATION COMPLETE</p>
+      <h2 id="completion-title">Generated MCQs Preview</h2>
+      <p id="completion-subtitle" style="margin-bottom: 15px; font-size: 14px; color: var(--text-muted);">Below are the publication-ready MCQs generated from your PDF upload.</p>
+
+      <div id="completion-mcq-list" class="completion-mcq-list">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="modal-foot-edit" style="margin-top: 20px;">
+        <button type="button" class="btn-secondary" id="completion-close-btn">Close Preview</button>
+        <button type="button" class="primary" id="completion-view-qbank">Open Question Bank →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Editorial Review Modal -->
+  <div class="modal-backdrop" id="edit-modal">
+    <div class="modal edit-modal-content">
+      <button class="close" id="edit-close">×</button>
+      <p class="eyebrow">EDITORIAL WORKBENCH</p>
+      <h2 id="edit-title">Review Question</h2>
+      
+      <form id="edit-form">
+        <input type="hidden" id="edit-q-id">
+        
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label for="edit-question">Question Text</label>
+            <textarea id="edit-question" required rows="3"></textarea>
+          </div>
+        </div>
+        
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-difficulty">Difficulty</label>
+            <select id="edit-difficulty">
+              <option value="Moderate">Moderate</option>
+              <option value="Difficult">Difficult</option>
+              <option value="INI-SS">INI-SS</option>
+              <option value="AIIMS MCh">AIIMS MCh</option>
+              <option value="Top 1%">Top 1%</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="edit-type">Question Type</label>
+            <select id="edit-type">
+              <option value="One Liner">One Liner</option>
+              <option value="Clinical Scenario">Clinical Scenario</option>
+              <option value="Image Based">Image Based</option>
+              <option value="Case Cluster">Case Cluster</option>
+              <option value="Assertion Reason">Assertion Reason</option>
+              <option value="Best Next Step">Best Next Step</option>
+              <option value="Most Appropriate Management">Most Appropriate Management</option>
+              <option value="Most Likely Diagnosis">Most Likely Diagnosis</option>
+              <option value="Operative Decision Making">Operative Decision Making</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid options-grid">
+          <div class="form-group">
+            <label for="edit-option-a">Option A (Correct/Distractor)</label>
+            <input type="text" id="edit-option-a" required>
+            <input type="text" class="why-wrong" id="edit-why-a" placeholder="Why Option A is wrong (grounded explanation)...">
+          </div>
+          <div class="form-group">
+            <label for="edit-option-b">Option B (Correct/Distractor)</label>
+            <input type="text" id="edit-option-b" required>
+            <input type="text" class="why-wrong" id="edit-why-b" placeholder="Why Option B is wrong (grounded explanation)...">
+          </div>
+          <div class="form-group">
+            <label for="edit-option-c">Option C (Correct/Distractor)</label>
+            <input type="text" id="edit-option-c" required>
+            <input type="text" class="why-wrong" id="edit-why-c" placeholder="Why Option C is wrong (grounded explanation)...">
+          </div>
+          <div class="form-group">
+            <label for="edit-option-d">Option D (Correct/Distractor)</label>
+            <input type="text" id="edit-option-d" required>
+            <input type="text" class="why-wrong" id="edit-why-d" placeholder="Why Option D is wrong (grounded explanation)...">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-correct">Correct Option</label>
+            <select id="edit-correct">
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="edit-reference">Direct Citation Reference</label>
+            <input type="text" id="edit-reference" required placeholder="e.g. Bailey & Love 28th Edition, Chapter 74, Page 1224">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label for="edit-explanation">Core Explanation &amp; Pathophysiology</label>
+            <textarea id="edit-explanation" required rows="3"></textarea>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-pearl">Clinical Pearl</label>
+            <input type="text" id="edit-pearl" placeholder="Key clinical takeaway...">
+          </div>
+          <div class="form-group">
+            <label for="edit-trap">Exam Trap (INI-SS style distractor alerts)</label>
+            <input type="text" id="edit-trap" placeholder="Common distractor tricks...">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-memory">High Yield Memory Point</label>
+            <input type="text" id="edit-memory" placeholder="High-yield mnemonic/fact...">
+          </div>
+          <div class="form-group">
+            <label for="edit-book">Book Name</label>
+            <input type="text" id="edit-book" placeholder="e.g. Bailey &amp; Love">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-edition">Edition</label>
+            <input type="text" id="edit-edition" placeholder="e.g. 28th Edition">
+          </div>
+          <div class="form-group">
+            <label for="edit-chapter">Chapter</label>
+            <input type="text" id="edit-chapter" placeholder="e.g. Chapter 74: The Pancreas">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-topic">Topic</label>
+            <input type="text" id="edit-topic" placeholder="e.g. Acute Pancreatitis">
+          </div>
+          <div class="form-group">
+            <label for="edit-subtopic">Subtopic</label>
+            <input type="text" id="edit-subtopic" placeholder="e.g. Necrotising Pancreatitis">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-page">Page Number</label>
+            <input type="text" id="edit-page" placeholder="e.g. 1224">
+          </div>
+          <div class="form-group">
+            <label for="edit-fig">Figure / Table Number</label>
+            <input type="text" id="edit-fig" placeholder="e.g. Table 74.3">
+          </div>
+        </div>
+
+        <div class="modal-foot-edit">
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn-secondary" id="edit-btn-delete" style="background: #fde6e1; color: #d85b48; font-weight: bold;">🗑 Delete Question</button>
+            <button type="button" class="btn-secondary" id="edit-btn-reject">Reject Question</button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn-secondary" id="edit-btn-save">Save Draft</button>
+            <button type="submit" class="primary" id="edit-btn-approve">Approve &amp; Publish</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
