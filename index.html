@@ -39,6 +39,7 @@
         </div>
       </div>
       <div class="header-actions" style="display: flex; gap: 8px; align-items: center;">
+        <button id="header-logs-btn" class="btn-secondary" style="font-weight: 600; padding: 8px 12px; border-radius: 6px;" title="View live AI model & processing logs">📋 AI Logs</button>
         <button id="header-backup-btn" class="btn-secondary" style="font-weight: 600; padding: 8px 12px; border-radius: 6px;" title="Download database backup JSON">💾 Backup DB</button>
         <label for="header-restore-input" class="btn-secondary" style="font-weight: 600; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: inline-block;" title="Restore database from backup JSON">📥 Restore DB</label>
         <input type="file" id="header-restore-input" accept=".json" style="display: none;">
@@ -419,6 +420,25 @@
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
         <button type="button" class="btn-secondary" id="btn-regen-cancel">Cancel</button>
         <button type="button" class="primary" id="btn-regen-submit">⚡ Start Generating</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI & System Logs Modal -->
+  <div class="modal-backdrop" id="logs-modal">
+    <div class="modal" style="max-width: 750px; width: 90%; text-align: left;">
+      <button class="close" id="logs-close">×</button>
+      <p class="eyebrow" style="color: var(--mint);">⚡ SYSTEM &amp; AI DIAGNOSTICS</p>
+      <h2 style="margin-bottom: 8px;">Live AI Processing Logs</h2>
+      <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">Real-time status of API requests, fallback switches, rate limits, and server events.</p>
+      
+      <div id="logs-content" style="padding: 16px; background: #0f172a; color: #e2e8f0; font-family: 'DM Mono', monospace; font-size: 12px; height: 380px; overflow-y: auto; border-radius: 8px; white-space: pre-wrap; line-height: 1.6; border: 1px solid var(--border);">
+        Loading live system logs...
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+        <button type="button" class="btn-secondary" id="logs-refresh-btn" style="padding: 8px 14px; border-radius: 6px; font-weight: 600;">🔄 Refresh Logs</button>
+        <button type="button" class="primary" id="logs-close-btn" style="padding: 8px 16px; border-radius: 6px;">Close</button>
       </div>
     </div>
   </div>

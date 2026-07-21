@@ -941,6 +941,41 @@ async function processRestoreFile(file) {
   }
 });
 
+// AI & System Logs Modal
+async function fetchAndDisplayLogs() {
+  const container = $('#logs-content');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/admin/logs');
+    if (!res.ok) throw new Error('Failed to fetch logs');
+    const data = await res.json();
+    if (data.logs && data.logs.length > 0) {
+      container.textContent = data.logs.join('\n');
+    } else {
+      container.textContent = 'No system logs available yet.';
+    }
+  } catch (err) {
+    container.textContent = 'Error loading logs: ' + err.message;
+  }
+}
+
+function openLogsModal() {
+  const logsModal = $('#logs-modal');
+  if (logsModal) {
+    logsModal.classList.add('show');
+    fetchAndDisplayLogs();
+  }
+}
+function closeLogsModal() {
+  const logsModal = $('#logs-modal');
+  if (logsModal) logsModal.classList.remove('show');
+}
+
+if ($('#header-logs-btn')) $('#header-logs-btn').onclick = openLogsModal;
+if ($('#logs-close')) $('#logs-close').onclick = closeLogsModal;
+if ($('#logs-close-btn')) $('#logs-close-btn').onclick = closeLogsModal;
+if ($('#logs-refresh-btn')) $('#logs-refresh-btn').onclick = fetchAndDisplayLogs;
+
 // Main Load Dashboard
 async function loadDashboard() {
   try {

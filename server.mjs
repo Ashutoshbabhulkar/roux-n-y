@@ -55,6 +55,17 @@ const dataFile = join(storageRoot, 'roux-ny-data.json');
 const port = Number(process.env.PORT || 4173);
 const maxUploadBytes = 2 * 1024 * 1024 * 1024;
 
+const systemLogs = [];
+function logSys(level, msg) {
+  const time = new Date().toLocaleTimeString();
+  const entry = `[${time}] [${level.toUpperCase()}] ${msg}`;
+  systemLogs.unshift(entry);
+  if (systemLogs.length > 120) systemLogs.pop();
+  if (level === 'error') console.error(entry);
+  else if (level === 'warn') console.warn(entry);
+  else console.log(entry);
+}
+
 // Clean seed - no demo data
 const seed = { sources: [], questions: [], activity: [] };
 
@@ -217,13 +228,13 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
         try {
           const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
           if (statusCallback) statusCallback(`Calling Gemini Direct (${model}${keyTag})...`, model);
-          console.log(`[Roux N Y] Calling Gemini Direct (${model}${keyTag})...`);
+          logSys('info', `Calling Gemini Direct (${model}${keyTag})...`);
           
           const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
           const res = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(120000),
+            signal: AbortSignal.timeout(30000),
             body: JSON.stringify({
               contents: [
                 {
@@ -241,17 +252,17 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const data = await res.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) {
-              console.log(`[Roux N Y] Successfully generated response with Gemini ${model}`);
+              logSys('info', `Successfully generated response with Gemini ${model}`);
               return text;
             }
           } else {
             const errText = await res.text();
             lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
-            console.warn(`[Roux N Y] ${lastError}`);
+            logSys('warn', lastError);
             
             // INSTANT PROVIDER SWITCH: If payment (402), quota/forbidden (403), or billing/key error, break loop & switch provider immediately!
             if (res.status === 402 || res.status === 403 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
-              console.warn(`[Roux N Y] Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
+              logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
               if (statusCallback) statusCallback(`Quota/Billing limit on Gemini. Switching to OpenRouter/Groq...`, model);
               break; // Jump to OpenRouter immediately
             }
@@ -259,7 +270,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
           }
         } catch (err) {
           lastError = `Gemini fetch error on ${model}: ${err.message}`;
-          console.warn(`[Roux N Y] ${lastError}`);
+          logSys('warn', lastError);
           continue;
         }
       }
@@ -270,7 +281,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
       for (const model of openrouterModels) {
         try {
           if (statusCallback) statusCallback(`Calling OpenRouter (${model.split('/')[1] || model})...`, model);
-          console.log(`[Roux N Y] Calling OpenRouter (${model})...`);
+          logSys('info', `Calling OpenRouter (${model})...`);
           
           const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
@@ -280,7 +291,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               'X-Title': 'Roux N Y',
               'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(120000),
+            signal: AbortSignal.timeout(30000),
             body: JSON.stringify({
               model,
               messages: [
@@ -302,15 +313,15 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const data = await res.json();
             const text = data.choices?.[0]?.message?.content;
             if (text) {
-              console.log(`[Roux N Y] Successfully generated response via OpenRouter (${model})`);
+              logSys('info', `Successfully generated response via OpenRouter (${model})`);
               return text;
             }
           } else {
             const errText = await res.text();
             lastError = `OpenRouter ${model} (${res.status}): ${errText.slice(0, 100)}`;
-            console.warn(`[Roux N Y] ${lastError}`);
+            logSys('warn', lastError);
             if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('credit') || errText.toLowerCase().includes('balance') || errText.toLowerCase().includes('quota')) {
-              console.warn(`[Roux N Y] Payment/Quota error on OpenRouter (${res.status}). Instantly switching provider...`);
+              logSys('warn', `Payment/Quota error on OpenRouter (${res.status}). Instantly switching provider...`);
               if (statusCallback) statusCallback(`Quota/Billing limit on OpenRouter. Switching to Groq...`, model);
               break; // Jump to Groq immediately
             }
@@ -318,7 +329,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
           }
         } catch (err) {
           lastError = `OpenRouter error on ${model}: ${err.message}`;
-          console.warn(`[Roux N Y] ${lastError}`);
+          logSys('warn', lastError);
           continue;
         }
       }
@@ -329,7 +340,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
       for (const model of groqModels) {
         try {
           if (statusCallback) statusCallback(`Calling Groq Ultra-Fast AI (${model})...`, model);
-          console.log(`[Roux N Y] Calling Groq API (${model})...`);
+          logSys('info', `Calling Groq API (${model})...`);
           
           const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -337,7 +348,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(120000),
+            signal: AbortSignal.timeout(30000),
             body: JSON.stringify({
               model,
               messages: [
@@ -354,15 +365,15 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const data = await res.json();
             const text = data.choices?.[0]?.message?.content;
             if (text) {
-              console.log(`[Roux N Y] Successfully generated response via Groq (${model})`);
+              logSys('info', `Successfully generated response via Groq (${model})`);
               return text;
             }
           } else {
             const errText = await res.text();
             lastError = `Groq ${model} (${res.status}): ${errText.slice(0, 100)}`;
-            console.warn(`[Roux N Y] ${lastError}`);
+            logSys('warn', lastError);
             if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('rate') || errText.toLowerCase().includes('quota')) {
-              console.warn(`[Roux N Y] Quota/Rate limit on Groq (${res.status}). Instantly trying next candidate...`);
+              logSys('warn', `Quota/Rate limit on Groq (${res.status}). Instantly trying next candidate...`);
               if (statusCallback) statusCallback(`Quota limit on Groq (${model}). Trying next...`, model);
               break;
             }
@@ -370,7 +381,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
           }
         } catch (err) {
           lastError = `Groq error on ${model}: ${err.message}`;
-          console.warn(`[Roux N Y] ${lastError}`);
+          logSys('warn', lastError);
           continue;
         }
       }
@@ -1357,6 +1368,10 @@ table.mcq-table td {
     } catch (err) {
       return send(res, 500, { error: 'Failed to restore database: ' + err.message });
     }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/logs') {
+    return send(res, 200, { logs: systemLogs });
   }
 
   send(res, 404, { error: 'Route not found.' });
