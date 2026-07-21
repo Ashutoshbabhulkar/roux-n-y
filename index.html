@@ -102,18 +102,28 @@
           <button class="filter" data-filter="approved">Approved <b id="filter-approved-count">0</b></button>
           <button class="filter" data-filter="rejected">Rejected <b id="filter-rejected-count">0</b></button>
         </div>
-        <div style="display: flex; align-items: center; gap: 6px;">
-          <label for="qbank-source-select" style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-family: 'DM Mono';">Source PDF:</label>
-          <select id="qbank-source-select" style="padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); font-family: inherit; font-size: 13px; background: white; color: var(--text); cursor: pointer; min-width: 180px;">
-            <option value="all">All Source PDFs</option>
-          </select>
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <label for="qbank-source-select" style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-family: 'DM Mono';">Source PDF:</label>
+            <select id="qbank-source-select" style="padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); font-family: inherit; font-size: 13px; background: white; color: var(--text); cursor: pointer; min-width: 160px;">
+              <option value="all">All Source PDFs</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <label for="qbank-chapter-select" style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-family: 'DM Mono';">Chapter / Topic:</label>
+            <select id="qbank-chapter-select" style="padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); font-family: inherit; font-size: 13px; background: white; color: var(--text); cursor: pointer; min-width: 160px;">
+              <option value="all">All Chapters</option>
+            </select>
+          </div>
         </div>
       </div>
       
       <div id="bulk-toolbar" class="bulk-toolbar hidden">
         <span id="bulk-count">0 questions selected</span>
-        <div class="bulk-actions">
+        <div class="bulk-actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
           <button class="bulk-btn approve-btn" id="bulk-approve-btn">✓ Approve Selected</button>
+          <button class="bulk-btn" id="bulk-export-doc-btn" style="background: #107c41; color: white; border: none; font-weight: 600;">📄 Export Selected Word (.doc)</button>
+          <button class="bulk-btn" id="bulk-export-csv-btn" style="background: #2d6a4f; color: white; border: none; font-weight: 600;">📊 Export Selected CSV</button>
           <button class="bulk-btn delete-btn" id="bulk-delete-btn">🗑 Delete Selected</button>
         </div>
       </div>

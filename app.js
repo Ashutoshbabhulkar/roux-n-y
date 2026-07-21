@@ -5,6 +5,7 @@ let globalQuestions = [];
 let globalSources = [];
 let currentFilter = 'all';
 let currentSourceFilter = 'all';
+let currentChapterFilter = 'all';
 let pendingDeleteSourceId = null;
 let pendingRegenSourceId = null;
 
@@ -527,6 +528,9 @@ function renderQuestionsTable(questions) {
   if (currentSourceFilter !== 'all') {
     filtered = filtered.filter(q => q.sourceId === currentSourceFilter || q.sourceTitle === currentSourceFilter);
   }
+  if (currentChapterFilter !== 'all') {
+    filtered = filtered.filter(q => (q.chapter && q.chapter.trim() === currentChapterFilter) || (q.topic && q.topic.trim() === currentChapterFilter));
+  }
   
   if (filtered.length === 0) {
     container.innerHTML = `<div class="empty-state-list" style="grid-column: span 5; padding: 40px; text-align: center;">
@@ -866,20 +870,39 @@ $('#qbank-filters').querySelectorAll('.filter').forEach(btn => {
   };
 });
 
-// Bind Exports & Backup & Word (.docx) download buttons
+// Smart Export URL Builder supporting filters (IDs, sourceId, chapter, status)
+function buildExportUrl(endpoint, forceSelectedOnly = false) {
+  const params = new URLSearchParams();
+  if (forceSelectedOnly || selectedQIds.size > 0) {
+    params.set('ids', Array.from(selectedQIds).join(','));
+  } else {
+    if (currentSourceFilter !== 'all') params.set('sourceId', currentSourceFilter);
+    if (currentChapterFilter !== 'all') params.set('chapter', currentChapterFilter);
+    if (currentFilter !== 'all') params.set('status', currentFilter);
+  }
+  const queryString = params.toString();
+  return queryString ? `${endpoint}?${queryString}` : endpoint;
+}
+
 const triggerBackup = () => window.location.href = '/api/exports/backup';
-const triggerDocx = () => window.location.href = '/api/exports/docx';
 
 ['#export-csv', '#qbank-export-btn'].forEach(id => {
-  if ($(id)) $(id).onclick = () => window.location.href = '/api/exports/csv';
+  if ($(id)) $(id).onclick = () => window.location.href = buildExportUrl('/api/exports/csv');
 });
-if ($('#export-excel')) $('#export-excel').onclick = () => window.location.href = '/api/exports/csv';
-if ($('#export-json')) $('#export-json').onclick = () => window.location.href = '/api/exports/json';
-if ($('#export-sql')) $('#export-sql').onclick = () => window.location.href = '/api/exports/sql';
+if ($('#export-excel')) $('#export-excel').onclick = () => window.location.href = buildExportUrl('/api/exports/csv');
+if ($('#export-json')) $('#export-json').onclick = () => window.location.href = buildExportUrl('/api/exports/json');
+if ($('#export-sql')) $('#export-sql').onclick = () => window.location.href = buildExportUrl('/api/exports/sql');
 
 ['#export-docx', '#export-docx-btn'].forEach(id => {
-  if ($(id)) $(id).onclick = triggerDocx;
+  if ($(id)) $(id).onclick = () => window.location.href = buildExportUrl('/api/exports/doc');
 });
+
+if ($('#bulk-export-doc-btn')) {
+  $('#bulk-export-doc-btn').onclick = () => window.location.href = buildExportUrl('/api/exports/doc', true);
+}
+if ($('#bulk-export-csv-btn')) {
+  $('#bulk-export-csv-btn').onclick = () => window.location.href = buildExportUrl('/api/exports/csv', true);
+}
 
 ['#header-backup-btn', '#qbank-backup-btn', '#btn-export-backup'].forEach(id => {
   if ($(id)) $(id).onclick = triggerBackup;
@@ -1004,6 +1027,37 @@ async function loadDashboard() {
         sourceSelect.value = 'all';
         currentSourceFilter = 'all';
       }
+      sourceSelect.onchange = (e) => {
+        currentSourceFilter = e.target.value;
+        renderQuestionsTable(globalQuestions);
+      };
+    }
+
+    // Populate Chapter / Topic Filter dropdown
+    const chapterSelect = $('#qbank-chapter-select');
+    if (chapterSelect) {
+      const activeChapVal = chapterSelect.value || 'all';
+      const chaptersSet = new Set();
+      globalQuestions.forEach(q => {
+        if (q.chapter) chaptersSet.add(q.chapter.trim());
+        else if (q.topic) chaptersSet.add(q.topic.trim());
+      });
+      let chapHtml = '<option value="all">All Chapters</option>';
+      Array.from(chaptersSet).sort().forEach(chap => {
+        const count = globalQuestions.filter(q => (q.chapter && q.chapter.trim() === chap) || (q.topic && q.topic.trim() === chap)).length;
+        chapHtml += `<option value="${escapeHtml(chap)}">${escapeHtml(chap)} (${count} MCQs)</option>`;
+      });
+      chapterSelect.innerHTML = chapHtml;
+      if (Array.from(chapterSelect.options).some(o => o.value === activeChapVal)) {
+        chapterSelect.value = activeChapVal;
+      } else {
+        chapterSelect.value = 'all';
+        currentChapterFilter = 'all';
+      }
+      chapterSelect.onchange = (e) => {
+        currentChapterFilter = e.target.value;
+        renderQuestionsTable(globalQuestions);
+      };
     }
     
     // Render sections

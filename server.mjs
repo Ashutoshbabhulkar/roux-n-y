@@ -1014,10 +1014,33 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function filterQuestionsByQuery(questions, searchParams) {
+  let list = [...questions];
+  const idsStr = searchParams.get('ids');
+  if (idsStr) {
+    const idSet = new Set(idsStr.split(',').map(s => s.trim()).filter(Boolean));
+    list = list.filter(q => idSet.has(q.id));
+  }
+  const sourceId = searchParams.get('sourceId');
+  if (sourceId && sourceId !== 'all') {
+    list = list.filter(q => q.sourceId === sourceId || q.sourceTitle === sourceId || q.book === sourceId);
+  }
+  const chapter = searchParams.get('chapter');
+  if (chapter && chapter !== 'all') {
+    const cLower = chapter.toLowerCase();
+    list = list.filter(q => (q.chapter && q.chapter.toLowerCase().includes(cLower)) || (q.topic && q.topic.toLowerCase().includes(cLower)));
+  }
+  const status = searchParams.get('status');
+  if (status && status !== 'all') {
+    list = list.filter(q => q.status === status);
+  }
+  return list;
+}
+
   // Exports
   if (req.method === 'GET' && (url.pathname === '/api/exports/docx' || url.pathname === '/api/exports/doc')) {
     const data = await readData();
-    const questions = data.questions || [];
+    const questions = filterQuestionsByQuery(data.questions || [], url.searchParams);
     
     let html = `<html xmlns:v="urn:schemas-microsoft-com:vml"
 xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -1181,6 +1204,7 @@ table.mcq-table td {
 
   if (req.method === 'GET' && url.pathname === '/api/exports/csv') {
     const data = await readData();
+    const questions = filterQuestionsByQuery(data.questions || [], url.searchParams);
     const headers = [
       'Question_ID', 'Book', 'Edition', 'Chapter', 'Topic', 'Subtopic', 
       'Page_Number', 'Figure_Number', 'Table_Number', 'Difficulty', 'Type', 
@@ -1189,7 +1213,7 @@ table.mcq-table td {
       'Clinical_Pearl', 'Exam_Trap', 'Memory_Point', 'Reference', 'Marks'
     ];
     let csv = headers.join(',') + '\n';
-    data.questions.forEach(q => {
+    questions.forEach(q => {
       const row = [
         q.id,
         q.book || '',
@@ -1230,15 +1254,17 @@ table.mcq-table td {
   
   if (req.method === 'GET' && url.pathname === '/api/exports/json') {
     const data = await readData();
+    const questions = filterQuestionsByQuery(data.questions || [], url.searchParams);
     res.writeHead(200, { 
       'Content-Type': 'application/json; charset=utf-8', 
       'Content-Disposition': 'attachment; filename="roux-ny-questions.json"' 
     });
-    return res.end(JSON.stringify(data.questions, null, 2));
+    return res.end(JSON.stringify(questions, null, 2));
   }
   
   if (req.method === 'GET' && url.pathname === '/api/exports/sql') {
     const data = await readData();
+    const questions = filterQuestionsByQuery(data.questions || [], url.searchParams);
     let sql = `-- Roux N Y MCQs SQL Export\n\n`;
     sql += `CREATE TABLE IF NOT EXISTS mcqs (\n` +
       `  id VARCHAR(50) PRIMARY KEY,\n` +
@@ -1270,7 +1296,7 @@ table.mcq-table td {
       `  marks INTEGER\n` +
       `);\n\n`;
     
-    data.questions.forEach(q => {
+    questions.forEach(q => {
       const escapeSql = (str) => str ? str.replace(/'/g, "''") : '';
       sql += `INSERT INTO mcqs (id, book, edition, chapter, topic, subtopic, page_number, figure_number, table_number, difficulty, type, question, option_a, option_b, option_c, option_d, correct_option, explanation, why_a_wrong, why_b_wrong, why_c_wrong, why_d_wrong, clinical_pearl, exam_trap, memory_point, reference, marks) VALUES (\n` +
         `  '${q.id}',\n` +
