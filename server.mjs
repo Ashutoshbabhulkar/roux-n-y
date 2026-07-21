@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PDFDocument } from 'pdf-lib';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
