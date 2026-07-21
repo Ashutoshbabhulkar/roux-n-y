@@ -5,8 +5,31 @@ import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument } from 'pdf-lib';
-import pdfParse from 'pdf-parse';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
+async function extractTextFromPdfBuffer(pdfBuffer) {
+  if (!pdfBuffer || !pdfBuffer.length) return '';
+  try {
+    const pdfLib = require('pdf-parse');
+    if (typeof pdfLib === 'function') {
+      const parsed = await pdfLib(pdfBuffer);
+      return parsed && parsed.text ? parsed.text.trim() : '';
+    }
+    if (pdfLib && pdfLib.PDFParse) {
+      const parser = new pdfLib.PDFParse(new Uint8Array(pdfBuffer));
+      const res = await parser.getText();
+      if (typeof res === 'string') return res.trim();
+      if (res && res.text) return res.text.trim();
+      if (res && Array.isArray(res.pages)) {
+        return res.pages.map(p => p.text || '').join('\n').trim();
+      }
+    }
+  } catch (e) {
+    console.warn('[Roux N Y] PDF text extraction notice:', e.message);
+  }
+  return '';
+}
 
 const apiProviderStatus = {
   gemini: {
@@ -523,13 +546,7 @@ async function runProcessingPipeline(sourceId) {
       const sliceBuffer = Buffer.from(sliceResult.bytes);
       const base64Pdf = sliceBuffer.toString('base64');
       
-      let extractedText = '';
-      try {
-        const parsedPdf = await pdfParse(sliceBuffer);
-        extractedText = (parsedPdf && parsedPdf.text) ? parsedPdf.text.trim() : '';
-      } catch (e) {
-        console.warn(`[Roux N Y] PDF text extraction notice: ${e.message}`);
-      }
+      const extractedText = await extractTextFromPdfBuffer(sliceBuffer);
 
       const chunkPageCount = (chunk.end - chunk.start + 1);
       const targetMcqCount = Math.max(4, chunkPageCount * 4);
