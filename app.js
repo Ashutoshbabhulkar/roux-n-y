@@ -119,6 +119,7 @@ function statusLabel(status) {
 }
 
 function getBadgeClass(type) {
+  if (!type || typeof type !== 'string') return 'neutral';
   const t = type.toLowerCase();
   if (t.includes('image') || t.includes('radiology') || t.includes('ct') || t.includes('mri')) return 'image';
   if (t.includes('case') || t.includes('step') || t.includes('management')) return 'case';
@@ -366,21 +367,28 @@ function renderPriorityQueue(questions) {
 }
 
 function getEffectiveSources(sources, questions) {
-  const list = (sources || []).map(s => ({
+  const safeSources = Array.isArray(sources) ? sources.filter(Boolean) : [];
+  const list = safeSources.map(s => ({
     ...s,
-    title: s.title || s.filename || 'Surgical Textbook'
+    title: (s && (s.title || s.filename)) ? String(s.title || s.filename) : 'Surgical Textbook'
   }));
-  const knownTitles = new Set(list.map(s => s.title));
+  
+  const knownTitlesClean = new Set(list.map(s => (s.title || '').replace(/\.pdf$/i, '').toLowerCase().trim()));
   const knownIds = new Set(list.map(s => s.id));
   
   const synthMap = new Map();
-  (questions || []).forEach(q => {
-    const sTitle = q.sourceTitle || q.book || 'Surgical Textbook';
-    const sId = q.sourceId || sTitle;
-    if (!knownIds.has(sId) && !knownTitles.has(sTitle) && !synthMap.has(sTitle)) {
-      synthMap.set(sTitle, {
+  const safeQuestions = Array.isArray(questions) ? questions.filter(Boolean) : [];
+  
+  safeQuestions.forEach(q => {
+    if (!q) return;
+    const rawTitle = (q.sourceTitle || q.book || 'Surgical Textbook').toString().trim();
+    const cleanTitle = rawTitle.replace(/\.pdf$/i, '').toLowerCase().trim();
+    const sId = q.sourceId || rawTitle;
+    
+    if (!knownIds.has(sId) && !knownTitlesClean.has(cleanTitle) && !synthMap.has(cleanTitle)) {
+      synthMap.set(cleanTitle, {
         id: sId,
-        title: sTitle,
+        title: rawTitle,
         bytes: 0,
         status: 'ready',
         progress: 100,
@@ -429,7 +437,12 @@ function renderSources(sources) {
         ? 'Queued for processing' 
         : source.statusMessage || 'Complete';
 
-      const mcqCount = globalQuestions.filter(q => q.sourceId === source.id || q.sourceTitle === title).length;
+      const cleanTitleKey = title.replace(/\.pdf$/i, '').toLowerCase().trim();
+      const mcqCount = (globalQuestions || []).filter(q => {
+        if (!q) return false;
+        const qTitleClean = (q.sourceTitle || q.book || '').replace(/\.pdf$/i, '').toLowerCase().trim();
+        return q.sourceId === source.id || (cleanTitleKey && qTitleClean === cleanTitleKey);
+      }).length;
 
       return `<article class="source-card" style="position: relative; ${isFailed ? 'border-color: #fde6e1;' : ''}">
         <div class="${coverClass}" style="${isFailed ? 'background: #fde6e1; color: #d85b48;' : ''}">${escapeHtml(cover)}</div>
@@ -1202,13 +1215,13 @@ async function loadDashboard() {
       };
     }
     
-    // Render sections
-    renderActiveProcessing(data.processing);
-    renderActivity(data.activity);
-    renderPriorityQueue(globalQuestions);
-    renderSources(globalSources);
-    renderCoverage(globalSources);
-    renderQuestionsTable(globalQuestions);
+    // Render sections with isolated error handlers
+    try { renderActiveProcessing(data.processing); } catch (e) { console.error('renderActiveProcessing error:', e); }
+    try { renderActivity(data.activity); } catch (e) { console.error('renderActivity error:', e); }
+    try { renderPriorityQueue(globalQuestions); } catch (e) { console.error('renderPriorityQueue error:', e); }
+    try { renderSources(globalSources); } catch (e) { console.error('renderSources error:', e); }
+    try { renderCoverage(globalSources); } catch (e) { console.error('renderCoverage error:', e); }
+    try { renderQuestionsTable(globalQuestions); } catch (e) { console.error('renderQuestionsTable error:', e); }
     
     // Check if a source finished processing and trigger completion popup modal
     if (data.processing) {
