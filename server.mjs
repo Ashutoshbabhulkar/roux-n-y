@@ -1015,54 +1015,80 @@ function escapeHtml(str) {
 }
 
   // Exports
-  if (req.method === 'GET' && url.pathname === '/api/exports/docx') {
+  if (req.method === 'GET' && (url.pathname === '/api/exports/docx' || url.pathname === '/api/exports/doc')) {
     const data = await readData();
     const questions = data.questions || [];
     
-    let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    let html = `<html xmlns:v="urn:schemas-microsoft-com:vml"
+xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns:m="http://schemas.microsoft.com/office/2004/12/omml"
+xmlns="http://www.w3.org/TR/REC-html40">
 <head>
-<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="Microsoft Word 15">
+<meta name="Originator" content="Microsoft Word 15">
 <title>Roux N Y MCQs Word Export</title>
+<!--[if gte mso 9]><xml>
+ <o:DocumentProperties>
+  <o:Author>Dr. Ashutosh Babhulkar</o:Author>
+  <o:Title>Roux N Y MCQs</o:Title>
+ </o:DocumentProperties>
+ <w:WordDocument>
+  <w:View>Print</w:View>
+  <w:Zoom>100</w:Zoom>
+  <w:DoNotOptimizeForCustomXSL/>
+ </w:WordDocument>
+</xml><![endif]-->
 <style>
-  @page {
-    size: A4 portrait;
-    margin: 0.8in;
-  }
-  body {
-    font-family: Arial, sans-serif;
-    font-size: 10pt;
-    color: #000000;
-    line-height: 1.35;
-  }
-  .page-break {
-    page-break-before: always;
-    clear: both;
-    mso-break-type: page-break;
-  }
-  table.mcq-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 20px;
-  }
-  table.mcq-table td {
-    border: 1px solid #000000;
-    padding: 6px 8px;
-    vertical-align: top;
-    font-size: 9.5pt;
-  }
-  .lbl {
-    width: 14%;
-    font-weight: normal;
-  }
-  .sol-heading {
-    font-weight: bold;
-    margin-top: 8px;
-    margin-bottom: 3px;
-    font-size: 9.5pt;
-  }
+@page WordSection1 {
+  size: 595.3pt 841.9pt;
+  margin: 0.8in 0.8in 0.8in 0.8in;
+  mso-header-margin: 35.4pt;
+  mso-footer-margin: 35.4pt;
+  mso-paper-source: 0;
+}
+div.WordSection1 {
+  page: WordSection1;
+}
+body {
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  color: #000000;
+  line-height: 1.35;
+}
+br.page-break {
+  page-break-before: always;
+  mso-break-type: page-break;
+}
+table.mcq-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  mso-table-lspace: 0pt;
+  mso-table-rspace: 0pt;
+}
+table.mcq-table td {
+  border: 1.0pt solid windowtext;
+  padding: 6pt 8pt;
+  vertical-align: top;
+  font-size: 9.5pt;
+}
+.lbl {
+  width: 14%;
+  font-weight: normal;
+}
+.sol-heading {
+  font-weight: bold;
+  margin-top: 8pt;
+  margin-bottom: 3pt;
+  font-size: 9.5pt;
+}
 </style>
 </head>
-<body>`;
+<body>
+<div class="WordSection1">`;
 
     questions.forEach((q, index) => {
       const correctOpt = (q.correct_option || 'A').toUpperCase().trim();
@@ -1087,7 +1113,7 @@ function escapeHtml(str) {
       const sourcePdfName = q.sourceTitle || q.book || 'Bailey and Love\'s Short Practice of Surgery 28th Edition(1).pdf';
 
       if (index > 0) {
-        html += `<div class="page-break"></div>`;
+        html += `<br class="page-break" style="page-break-before: always; mso-break-type: page-break;" />`;
       }
 
       html += `<table class="mcq-table">
@@ -1144,11 +1170,11 @@ function escapeHtml(str) {
 </table>`;
     });
 
-    html += `</body></html>`;
+    html += `</div></body></html>`;
 
     res.writeHead(200, {
       'Content-Type': 'application/msword; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="roux-ny-mcqs-tabulated.docx"'
+      'Content-Disposition': 'attachment; filename="roux-ny-mcqs-tabulated.doc"'
     });
     return res.end(html);
   }
