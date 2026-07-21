@@ -4,6 +4,9 @@ let selectedFile = null;
 let globalQuestions = [];
 let globalSources = [];
 let currentFilter = 'all';
+let currentSourceFilter = 'all';
+let pendingDeleteSourceId = null;
+let pendingRegenSourceId = null;
 
 function openModal() {
   modal.classList.add('show');
@@ -374,18 +377,21 @@ function renderSources(sources) {
       ? 'Queued for processing' 
       : source.statusMessage || 'Complete';
 
+    const mcqCount = globalQuestions.filter(q => q.sourceId === source.id || q.sourceTitle === source.title).length;
+
     return `<article class="source-card" style="position: relative; ${isFailed ? 'border-color: #fde6e1;' : ''}">
       <div class="${coverClass}" style="${isFailed ? 'background: #fde6e1; color: #d85b48;' : ''}">${escapeHtml(cover)}</div>
       <div style="flex: 1;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
           <span class="${statusClass}">● ${escapeHtml(statusLabel(source.status))}</span>
           <div style="display: flex; gap: 4px;">
+            ${source.status === 'ready' ? `<button class="regen-source-btn" data-src-id="${source.id}" title="Generate more MCQs from this textbook" style="background: #e6f3ed; color: #1f8255; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">⚡ Generate More</button>` : ''}
             ${isFailed ? `<button class="retry-source-btn" data-src-id="${source.id}" title="Retry processing" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🔄 Retry</button>` : ''}
             <button class="delete-source-btn" data-src-id="${source.id}" title="Delete source" style="background: #fde6e1; color: #d85b48; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🗑 Delete</button>
           </div>
         </div>
         <h3 style="margin-top: 6px; margin-bottom: 4px;">${escapeHtml(source.title)}</h3>
-        <p>${formatBytes(source.bytes)} · SHA-256 recorded</p>
+        <p>${formatBytes(source.bytes)} · <span style="color: #1f8255; font-weight: 600;">${mcqCount} MCQs in database</span></p>
         ${isFailed 
           ? `<p style="color: #d85b48; font-size: 12px; margin-top: 6px;"><strong>Error:</strong> ${escapeHtml(source.error || 'Processing failed.')}</p>`
           : `<div class="progress"><i style="width:${percentage}%"></i></div>
@@ -397,6 +403,18 @@ function renderSources(sources) {
       </div>
     </article>`;
   }).join('');
+
+  container.querySelectorAll('.regen-source-btn').forEach(btn => {
+    btn.onclick = () => {
+      pendingRegenSourceId = btn.dataset.srcId;
+      const source = sources.find(s => s.id === pendingRegenSourceId);
+      if (source) {
+        $('#regenerate-source-title').textContent = `Generate More MCQs from "${source.title}"`;
+        $('#regen-page-range').value = source.pageRange || '';
+      }
+      $('#regenerate-source-modal').classList.add('show');
+    };
+  });
 
   container.querySelectorAll('.retry-source-btn').forEach(btn => {
     btn.onclick = async () => {
@@ -412,18 +430,15 @@ function renderSources(sources) {
   });
 
   container.querySelectorAll('.delete-source-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const srcId = btn.dataset.srcId;
-      const source = sources.find(s => s.id === srcId);
-      const title = source ? source.title : 'this source';
-      if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
-      try {
-        const res = await fetch(`/api/sources/${srcId}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Failed to delete source');
-        await loadDashboard();
-      } catch (err) {
-        alert(err.message);
+    btn.onclick = () => {
+      pendingDeleteSourceId = btn.dataset.srcId;
+      const source = sources.find(s => s.id === pendingDeleteSourceId);
+      const mcqs = globalQuestions.filter(q => q.sourceId === pendingDeleteSourceId || q.sourceTitle === (source && source.title));
+      if (source) {
+        $('#delete-source-title').textContent = `Delete "${source.title}"`;
+        $('#delete-source-subtitle').textContent = `This source has ${mcqs.length} generated MCQ(s) currently stored in your database. Select your preferred deletion behavior below:`;
       }
+      $('#delete-source-modal').classList.add('show');
     };
   });
 }
@@ -507,7 +522,10 @@ function renderQuestionsTable(questions) {
   
   let filtered = [...questions];
   if (currentFilter !== 'all') {
-    filtered = questions.filter(q => q.status === currentFilter);
+    filtered = filtered.filter(q => q.status === currentFilter);
+  }
+  if (currentSourceFilter !== 'all') {
+    filtered = filtered.filter(q => q.sourceId === currentSourceFilter || q.sourceTitle === currentSourceFilter);
   }
   
   if (filtered.length === 0) {
@@ -521,8 +539,9 @@ function renderQuestionsTable(questions) {
   
   container.innerHTML = filtered.map(q => {
     const badge = getBadgeClass(q.type);
-    const ref = q.reference || `Page ${q.page_number || ''}`;
-    const sourceText = `${q.book || 'Grounded'} ${q.edition || ''}<br><small>p. ${q.page_number || 'N/A'}</small>`;
+    const displaySource = q.sourceTitle || q.book || 'Grounded PDF';
+    const isDeletedSource = q.sourceStatus === 'deleted';
+    const sourceText = `<strong style="font-size: 13px; color: ${isDeletedSource ? '#b84332' : 'var(--text)'}">${escapeHtml(displaySource)}</strong>${isDeletedSource ? ' <span style="font-size: 10px; color: #d85b48; font-weight: bold;">[PDF Deleted]</span>' : ''}<br><small>p. ${escapeHtml(q.page_number || 'N/A')}</small>`;
     const isChecked = selectedQIds.has(q.id) ? 'checked' : '';
     
     return `<div class="table-item clickable-row" data-q-id="${q.id}">
@@ -853,6 +872,32 @@ async function loadDashboard() {
     }
     $('#metric-coverage-percent').innerHTML = `${avgProgress}<sup>%</sup>`;
     
+    // Populate Source Filter dropdown
+    const sourceSelect = $('#qbank-source-select');
+    if (sourceSelect) {
+      const activeVal = sourceSelect.value || 'all';
+      const sourcesMap = new Map();
+      globalSources.forEach(s => sourcesMap.set(s.id, s.title));
+      globalQuestions.forEach(q => {
+        if (q.sourceTitle && !Array.from(sourcesMap.values()).includes(q.sourceTitle)) {
+          sourcesMap.set(q.sourceId || q.sourceTitle, `${q.sourceTitle} [PDF Deleted]`);
+        }
+      });
+      
+      let optionsHtml = '<option value="all">All Source PDFs</option>';
+      sourcesMap.forEach((title, id) => {
+        const count = globalQuestions.filter(q => q.sourceId === id || q.sourceTitle === title || q.sourceTitle === id).length;
+        optionsHtml += `<option value="${escapeHtml(id)}">${escapeHtml(title)} (${count} MCQs)</option>`;
+      });
+      sourceSelect.innerHTML = optionsHtml;
+      if (Array.from(sourceSelect.options).some(o => o.value === activeVal)) {
+        sourceSelect.value = activeVal;
+      } else {
+        sourceSelect.value = 'all';
+        currentSourceFilter = 'all';
+      }
+    }
+    
     // Render sections
     renderActiveProcessing(data.processing);
     renderActivity(data.activity);
@@ -960,6 +1005,82 @@ function updateApiUI() {
     }
     start.disabled = true;
   }
+}
+
+// Source Select Filter Event Listener
+const qbankSourceSelect = $('#qbank-source-select');
+if (qbankSourceSelect) {
+  qbankSourceSelect.onchange = () => {
+    currentSourceFilter = qbankSourceSelect.value;
+    renderQuestionsTable(globalQuestions);
+  };
+}
+
+// Delete Source Modal Handlers
+const deleteSourceModal = $('#delete-source-modal');
+const closeDeleteSourceModal = () => deleteSourceModal && deleteSourceModal.classList.remove('show');
+
+if ($('#delete-source-close')) $('#delete-source-close').onclick = closeDeleteSourceModal;
+if ($('#btn-delete-source-cancel')) $('#btn-delete-source-cancel').onclick = closeDeleteSourceModal;
+if (deleteSourceModal) deleteSourceModal.onclick = e => { if (e.target === deleteSourceModal) closeDeleteSourceModal(); };
+
+if ($('#btn-delete-pdf-only')) {
+  $('#btn-delete-pdf-only').onclick = async () => {
+    if (!pendingDeleteSourceId) return;
+    try {
+      const res = await fetch(`/api/sources/${pendingDeleteSourceId}?deleteQuestions=false`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete source PDF');
+      closeDeleteSourceModal();
+      pendingDeleteSourceId = null;
+      await loadDashboard();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+}
+
+if ($('#btn-delete-source-and-mcqs')) {
+  $('#btn-delete-source-and-mcqs').onclick = async () => {
+    if (!pendingDeleteSourceId) return;
+    try {
+      const res = await fetch(`/api/sources/${pendingDeleteSourceId}?deleteQuestions=true`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete source and MCQs');
+      closeDeleteSourceModal();
+      pendingDeleteSourceId = null;
+      await loadDashboard();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+}
+
+// Regenerate Source Modal Handlers
+const regenSourceModal = $('#regenerate-source-modal');
+const closeRegenSourceModal = () => regenSourceModal && regenSourceModal.classList.remove('show');
+
+if ($('#regenerate-source-close')) $('#regenerate-source-close').onclick = closeRegenSourceModal;
+if ($('#btn-regen-cancel')) $('#btn-regen-cancel').onclick = closeRegenSourceModal;
+if (regenSourceModal) regenSourceModal.onclick = e => { if (e.target === regenSourceModal) closeRegenSourceModal(); };
+
+if ($('#btn-regen-submit')) {
+  $('#btn-regen-submit').onclick = async () => {
+    if (!pendingRegenSourceId) return;
+    const pageRange = $('#regen-page-range').value || '';
+    try {
+      const res = await fetch(`/api/sources/${pendingRegenSourceId}/regenerate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pageRange })
+      });
+      if (!res.ok) throw new Error('Failed to start regeneration pipeline');
+      closeRegenSourceModal();
+      pendingRegenSourceId = null;
+      show('library');
+      await loadDashboard();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 }
 
 loadDashboard();

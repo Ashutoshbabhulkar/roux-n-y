@@ -494,6 +494,9 @@ CRITICAL RULES:
       ...q,
       correct_option: (q.correct_option || 'A').toUpperCase(),
       id: `Q-${Math.floor(2000 + Math.random() * 7000)}`,
+      sourceId: finalSource.id,
+      sourceTitle: finalSource.title || finalSource.filename,
+      sourceFilename: finalSource.filename,
       status: 'review',
       createdAt: new Date().toISOString()
     }));
@@ -502,7 +505,7 @@ CRITICAL RULES:
     
     const durationSec = Math.round((new Date().getTime() - new Date(pipelineStartedAt).getTime()) / 1000);
     const m = Math.floor(durationSec / 60);
-    const s = durationSec % 60;
+    const s = Math.floor(durationSec % 60);
     const durStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
     
     // Update source
@@ -513,9 +516,8 @@ CRITICAL RULES:
     finalSource.updatedAt = new Date().toISOString();
     finalSource.completedAt = new Date().toISOString();
     finalSource.totalProcessingDurationSec = durationSec;
-    finalSource.questionsGeneratedCount = newQuestions.length;
-    finalSource.statusMessage = `Completed in ${durStr} · ${newQuestions.length} MCQs ready`;
-    delete finalSource.error;
+    finalSource.questionsGeneratedCount = (finalSource.questionsGeneratedCount || 0) + newQuestions.length;
+    finalSource.statusMessage = `Completed in ${durStr} · ${newQuestions.length} MCQs generated (${finalSource.questionsGeneratedCount} total)`;
     delete finalSource.error;
     
     // Log activity
@@ -577,7 +579,15 @@ async function ensureStorage() {
 
 async function readData() {
   await ensureStorage();
-  return JSON.parse(await readFile(dataFile, 'utf8'));
+  const data = JSON.parse(await readFile(dataFile, 'utf8'));
+  if (Array.isArray(data.questions)) {
+    data.questions.forEach(q => {
+      if (!q.sourceTitle) {
+        q.sourceTitle = q.book || 'Surgical Textbook';
+      }
+    });
+  }
+  return data;
 }
 
 function send(res, status, payload) {
@@ -679,9 +689,47 @@ async function api(req, res, url) {
     return send(res, 200, { source });
   }
 
+  const regenerateMatch = url.pathname.match(/^\/api\/sources\/([\w-]+)\/regenerate$/);
+  if (req.method === 'POST' && regenerateMatch) {
+    const sourceId = regenerateMatch[1];
+    let customPageRange = '';
+    try {
+      const bData = await body(req);
+      if (bData.length > 0) {
+        const parsedBody = JSON.parse(bData.toString('utf8'));
+        customPageRange = parsedBody.pageRange || '';
+      }
+    } catch (_) {}
+    
+    const data = await readData();
+    const source = data.sources.find(item => item.id === sourceId);
+    if (!source) return send(res, 404, { error: 'Source not found.' });
+    
+    source.status = 'processing';
+    source.progress = 5;
+    if (customPageRange) source.pageRange = customPageRange;
+    source.updatedAt = new Date().toISOString();
+    
+    data.activity.unshift({
+      kind: 'new',
+      text: 'Regenerating MCQs from source',
+      detail: `${source.filename} (${source.pageRange || 'Full PDF'})`,
+      actor: 'AI',
+      at: source.updatedAt
+    });
+    
+    await writeData(data);
+    
+    // Trigger actual pipeline asynchronously
+    runProcessingPipeline(source.id);
+    
+    return send(res, 200, { source });
+  }
+
   const deleteSourceMatch = url.pathname.match(/^\/api\/sources\/([\w-]+)$/);
   if (req.method === 'DELETE' && deleteSourceMatch) {
     const sourceId = deleteSourceMatch[1];
+    const deleteQuestions = url.searchParams.get('deleteQuestions') === 'true';
     const data = await readData();
     const sourceIndex = data.sources.findIndex(s => s.id === sourceId);
     if (sourceIndex === -1) {
@@ -700,16 +748,30 @@ async function api(req, res, url) {
     
     data.sources.splice(sourceIndex, 1);
     
+    let deletedQCount = 0;
+    if (deleteQuestions) {
+      const initialQCount = data.questions.length;
+      data.questions = data.questions.filter(q => q.sourceId !== sourceId && q.sourceTitle !== source.title);
+      deletedQCount = initialQCount - data.questions.length;
+    } else {
+      // Keep MCQs in database but tag source as deleted
+      data.questions.forEach(q => {
+        if (q.sourceId === sourceId || q.sourceTitle === source.title) {
+          q.sourceStatus = 'deleted';
+        }
+      });
+    }
+    
     data.activity.unshift({
       kind: 'rejected',
-      text: `Source deleted`,
+      text: `Source deleted${deleteQuestions ? ` (${deletedQCount} MCQs removed)` : ' (MCQs kept)'}`,
       detail: source.filename,
       actor: 'DR',
       at: new Date().toISOString()
     });
     
     await writeData(data);
-    return send(res, 200, { success: true });
+    return send(res, 200, { success: true, deletedQuestions: deletedQCount });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/questions/bulk-approve') {

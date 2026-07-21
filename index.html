@@ -81,11 +81,19 @@
 
     <section id="questions" class="view">
       <div class="view-heading"><div><p class="eyebrow">EDITORIAL WORKBENCH</p><h2>Question bank</h2></div><button class="primary" id="qbank-export-btn">Export questions</button></div>
-      <div class="filters" id="qbank-filters">
-        <button class="filter selected" data-filter="all">All questions <b id="filter-all-count">0</b></button>
-        <button class="filter" data-filter="review">Needs review <b id="filter-review-count">0</b></button>
-        <button class="filter" data-filter="approved">Approved <b id="filter-approved-count">0</b></button>
-        <button class="filter" data-filter="rejected">Rejected <b id="filter-rejected-count">0</b></button>
+      <div class="filters" id="qbank-filters" style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+        <div style="display: flex; gap: 8px;">
+          <button class="filter selected" data-filter="all">All questions <b id="filter-all-count">0</b></button>
+          <button class="filter" data-filter="review">Needs review <b id="filter-review-count">0</b></button>
+          <button class="filter" data-filter="approved">Approved <b id="filter-approved-count">0</b></button>
+          <button class="filter" data-filter="rejected">Rejected <b id="filter-rejected-count">0</b></button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <label for="qbank-source-select" style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-family: 'DM Mono';">Source PDF:</label>
+          <select id="qbank-source-select" style="padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); font-family: inherit; font-size: 13px; background: white; color: var(--text); cursor: pointer; min-width: 180px;">
+            <option value="all">All Source PDFs</option>
+          </select>
+        </div>
       </div>
       
       <div id="bulk-toolbar" class="bulk-toolbar hidden">
@@ -328,6 +336,51 @@
           </div>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Delete Source Confirmation Modal -->
+  <div class="modal-backdrop" id="delete-source-modal">
+    <div class="modal" style="max-width: 480px; text-align: left;">
+      <button class="close" id="delete-source-close">×</button>
+      <p class="eyebrow" style="color: #d85b48;">🗑 DELETE SOURCE DOCUMENT</p>
+      <h2 id="delete-source-title">Delete Source</h2>
+      <p id="delete-source-subtitle" style="margin-bottom: 20px; font-size: 14px; color: var(--text-muted);">What would you like to do with the MCQs generated from this source?</p>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+        <button type="button" id="btn-delete-pdf-only" style="padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: white; text-align: left; cursor: pointer; transition: all 0.2s;">
+          <strong style="display: block; font-size: 14px; color: var(--text);">📄 Option 1: Delete PDF File Only</strong>
+          <small style="color: var(--text-muted); font-size: 12px;">Remove the source PDF textbook, but KEEP all generated MCQs in your database.</small>
+        </button>
+        <button type="button" id="btn-delete-source-and-mcqs" style="padding: 12px 16px; border: 1px solid #f9c8c8; border-radius: 8px; background: #fde6e1; text-align: left; cursor: pointer; transition: all 0.2s;">
+          <strong style="display: block; font-size: 14px; color: #d85b48;">🔥 Option 2: Delete PDF File &amp; ALL Generated MCQs</strong>
+          <small style="color: #b84332; font-size: 12px;">Completely wipe both the source PDF file and all associated MCQs from the database.</small>
+        </button>
+      </div>
+
+      <div style="text-align: right;">
+        <button type="button" class="btn-secondary" id="btn-delete-source-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Regenerate Source Modal -->
+  <div class="modal-backdrop" id="regenerate-source-modal">
+    <div class="modal" style="max-width: 480px; text-align: left;">
+      <button class="close" id="regenerate-source-close">×</button>
+      <p class="eyebrow" style="color: var(--mint);">⚡ ACCUMULATE MORE MCQS</p>
+      <h2 id="regenerate-source-title">Generate More MCQs</h2>
+      <p id="regenerate-source-subtitle" style="margin-bottom: 15px; font-size: 14px; color: var(--text-muted);">Re-scan this uploaded source to generate additional grounded questions.</p>
+      
+      <div class="form-group" style="margin-bottom: 20px;">
+        <label for="regen-page-range" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Page Range to Process</label>
+        <input type="text" id="regen-page-range" placeholder="e.g. 1-10 or leave blank to scan full document" style="width: 100%; padding: 11px 14px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; font-size: 14px; background: var(--panel); color: var(--text); box-sizing: border-box;">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn-secondary" id="btn-regen-cancel">Cancel</button>
+        <button type="button" class="primary" id="btn-regen-submit">⚡ Start Generating</button>
+      </div>
     </div>
   </div>
 
