@@ -271,7 +271,7 @@ function renderActiveProcessing(processingSource) {
       <span>Source File: ${escapeHtml(processingSource.filename)}</span>
     </div>
     <div style="display: flex; gap: 8px; align-items: center;">
-      <button class="retry-source-btn" data-src-id="${processingSource.id}" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 6px 12px; border: none; border-radius: 4px;">🔄 Restart Pipeline</button>
+      <button class="retry-source-btn" data-src-id="${processingSource.id}" style="background: #1e6091; color: white; font-size: 12px; font-weight: bold; cursor: pointer; padding: 7px 14px; border: none; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.15);">🔄 Restart Pipeline</button>
       <button class="text-btn" onclick="show('library')">View pipeline →</button>
     </div>
   </div>
@@ -438,7 +438,7 @@ function renderSources(sources) {
             <span class="${statusClass}">● ${escapeHtml(statusLabel(source.status))}</span>
             <div style="display: flex; gap: 4px;">
               ${source.status === 'ready' && !source.isVirtual ? `<button class="regen-source-btn" data-src-id="${source.id}" title="Generate more MCQs from this textbook" style="background: #e6f3ed; color: #1f8255; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">⚡ Generate More</button>` : ''}
-              ${isFailed ? `<button class="retry-source-btn" data-src-id="${source.id}" title="Retry processing" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🔄 Retry</button>` : ''}
+              ${isFailed || isProcessing ? `<button class="retry-source-btn" data-src-id="${source.id}" title="Restart processing pipeline" style="background: #1e6091; color: white; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 10px; border: none; border-radius: 4px;">🔄 Restart Pipeline</button>` : ''}
               ${!source.isVirtual ? `<button class="delete-source-btn" data-src-id="${source.id}" title="Delete source" style="background: #fde6e1; color: #d85b48; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🗑 Delete</button>` : ''}
             </div>
           </div>
