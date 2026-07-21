@@ -862,7 +862,7 @@ async function api(req, res, url) {
         kind: 'rejected',
         text: `${qId} deleted`,
         detail: `Single question deleted`,
-        actor: 'DR',
+        actor: 'AB',
         at: new Date().toISOString()
       });
       await writeData(data);
@@ -887,7 +887,7 @@ async function api(req, res, url) {
         kind: changes.status,
         text: `${question.id} ${changes.status}`,
         detail: question.subtopic || question.topic || '',
-        actor: 'DR',
+        actor: 'AB',
         at: new Date().toISOString()
       });
     }

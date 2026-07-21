@@ -552,10 +552,11 @@ function renderQuestionsTable(questions) {
       </div>
       <div>${sourceText}</div>
       <div><span class="badge ${badge}">${escapeHtml(q.type)}</span></div>
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <button class="status-action ${q.status === 'approved' ? 'approved' : q.status === 'rejected' ? 'rejected' : 'pending'}" data-q-id="${q.id}">
+      <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+        <button class="status-action ${q.status === 'approved' ? 'approved' : q.status === 'rejected' ? 'rejected' : 'pending'}" data-q-id="${q.id}" title="Click to edit or change status">
           ● ${statusLabel(q.status)}
         </button>
+        <button class="row-edit-btn" data-q-id="${q.id}" title="Edit this MCQ" style="background: #e6f0fa; color: #1e6091; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; padding: 4px 8px;">✏️ Edit</button>
         <button class="row-delete-btn" data-q-id="${q.id}" title="Delete question" style="background: transparent; color: #d85b48; border: none; cursor: pointer; font-size: 14px; padding: 2px 4px;">🗑</button>
       </div>
     </div>`;
@@ -573,6 +574,16 @@ function renderQuestionsTable(questions) {
       }
       updateSelectAllCheckbox(filtered);
       updateBulkToolbarUI();
+    };
+  });
+
+  // Bind edit handlers
+  container.querySelectorAll('.row-edit-btn, .status-action').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const qId = btn.dataset.qId;
+      const question = questions.find(q => q.id === qId);
+      if (question) openEditModal(question);
     };
   });
 
@@ -681,6 +692,7 @@ function openCompletionModal(source, questions) {
         <span class="completion-card-num">Question ${idx + 1} (${q.id})</span>
         <div style="display: flex; gap: 8px; align-items: center;">
           <span class="badge ${badge}">${escapeHtml(q.type)}</span>
+          <button class="edit-completion-q" data-q-id="${q.id}" style="background: #e6f0fa; color: #1e6091; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 11px; font-weight: bold;">✏️ Edit</button>
           <button class="delete-completion-q" data-q-id="${q.id}" style="background: #fde6e1; color: #d85b48; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 11px; font-weight: bold;">🗑 Delete</button>
         </div>
       </div>
@@ -694,6 +706,15 @@ function openCompletionModal(source, questions) {
       ${q.clinical_pearl ? `<div class="completion-pearl"><strong>Clinical Pearl:</strong> ${escapeHtml(q.clinical_pearl)}</div>` : ''}
     </div>`;
   }).join('');
+
+  listContainer.querySelectorAll('.edit-completion-q').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const qId = btn.dataset.qId;
+      const question = questions.find(q => q.id === qId);
+      if (question) openEditModal(question);
+    };
+  });
 
   listContainer.querySelectorAll('.delete-completion-q').forEach(btn => {
     btn.onclick = (e) => {
@@ -717,7 +738,20 @@ $('#completion-modal').onclick = e => { if (e.target === $('#completion-modal'))
 // Editorial Review Modal Logic
 function openEditModal(question) {
   $('#edit-q-id').value = question.id;
-  $('#edit-title').textContent = `Review Question ${question.id}`;
+  
+  const isApproved = question.status === 'approved';
+  const isRejected = question.status === 'rejected';
+  
+  if (isApproved) {
+    $('#edit-title').textContent = `✏️ Edit Approved Question ${question.id}`;
+    if ($('#edit-btn-approve')) $('#edit-btn-approve').textContent = '✓ Save Changes';
+  } else if (isRejected) {
+    $('#edit-title').textContent = `✏️ Edit Rejected Question ${question.id}`;
+    if ($('#edit-btn-approve')) $('#edit-btn-approve').textContent = '✓ Approve & Publish';
+  } else {
+    $('#edit-title').textContent = `Review Question ${question.id}`;
+    if ($('#edit-btn-approve')) $('#edit-btn-approve').textContent = '✓ Approve & Publish';
+  }
   $('#edit-question').value = question.question || '';
   $('#edit-difficulty').value = question.difficulty || 'Moderate';
   $('#edit-type').value = question.type || 'One Liner';
