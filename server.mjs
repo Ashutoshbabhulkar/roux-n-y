@@ -9,6 +9,14 @@ import { PDFDocument } from 'pdf-lib';
 
 const projectRoot = resolve(fileURLToPath(new URL('.', import.meta.url)));
 
+process.on('uncaughtException', (err) => {
+  console.error('[Roux N Y Server] Uncaught Exception caught (prevented crash):', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Roux N Y Server] Unhandled Rejection caught (prevented crash):', reason);
+});
+
 // Load environment variables from .env file
 try {
   const envPath = join(projectRoot, '.env');
@@ -90,22 +98,30 @@ async function slicePdf(inputBuffer, rangeStr) {
 }
 
 async function updateSourceProgress(sourceId, progress) {
-  const data = await readData();
-  const source = data.sources.find(s => s.id === sourceId);
-  if (source) {
-    source.progress = progress;
-    source.updatedAt = new Date().toISOString();
-    await writeData(data);
+  try {
+    const data = await readData();
+    const source = data.sources.find(s => s.id === sourceId);
+    if (source) {
+      source.progress = progress;
+      source.updatedAt = new Date().toISOString();
+      await writeData(data);
+    }
+  } catch (err) {
+    console.warn('[Roux N Y] updateSourceProgress warning:', err.message);
   }
 }
 
 async function updateSourceProgressDetails(sourceId, details) {
-  const data = await readData();
-  const source = data.sources.find(s => s.id === sourceId);
-  if (source) {
-    Object.assign(source, details);
-    source.updatedAt = new Date().toISOString();
-    await writeData(data);
+  try {
+    const data = await readData();
+    const source = data.sources.find(s => s.id === sourceId);
+    if (source) {
+      Object.assign(source, details);
+      source.updatedAt = new Date().toISOString();
+      await writeData(data);
+    }
+  } catch (err) {
+    console.warn('[Roux N Y] updateSourceProgressDetails warning:', err.message);
   }
 }
 
@@ -561,11 +577,27 @@ CRITICAL RULES:
   }
 }
 
+let writeQueue = Promise.resolve();
+
 async function writeData(data) {
-  await mkdir(storageRoot, { recursive: true });
-  const temp = `${dataFile}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify(data, null, 2), 'utf8');
-  await rename(temp, dataFile);
+  writeQueue = writeQueue.then(async () => {
+    try {
+      await mkdir(storageRoot, { recursive: true });
+      const temp = `${dataFile}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`;
+      await writeFile(temp, JSON.stringify(data, null, 2), 'utf8');
+      await rename(temp, dataFile);
+    } catch (err) {
+      console.warn('[Roux N Y Storage] Atomic rename warning, falling back to direct write:', err.message);
+      try {
+        await writeFile(dataFile, JSON.stringify(data, null, 2), 'utf8');
+      } catch (directErr) {
+        console.error('[Roux N Y Storage] Direct write error:', directErr.message);
+      }
+    }
+  }).catch(err => {
+    console.error('[Roux N Y Storage] Write queue exception:', err.message);
+  });
+  return writeQueue;
 }
 
 async function ensureStorage() {
