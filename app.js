@@ -436,11 +436,10 @@ function renderSources(sources) {
         <div style="flex: 1;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <span class="${statusClass}">● ${escapeHtml(statusLabel(source.status))}</span>
-            <div style="display: flex; gap: 4px;">
-              ${source.status === 'ready' && !source.isVirtual ? `<button class="regen-source-btn" data-src-id="${source.id}" title="Generate more MCQs from this textbook" style="background: #e6f3ed; color: #1f8255; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">⚡ Generate More</button>` : ''}
+              ${source.status === 'ready' && !source.isVirtual ? `<button class="preview-source-btn" data-src-id="${source.id}" title="Preview generated MCQs" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">👁 Preview</button>` : ''}
+              ${source.status === 'ready' && !source.isVirtual ? `<button class="regen-source-btn" data-src-id="${source.id}" title="Generate more MCQs from this textbook" style="background: #e6f3ed; color: #1f8255; font-size: 11px; font-weight: bold; cursor: padding: 4px 8px; border: none; border-radius: 4px;">⚡ Generate More</button>` : ''}
               ${isFailed || isProcessing ? `<button class="retry-source-btn" data-src-id="${source.id}" title="Restart processing pipeline" style="background: #1e6091; color: white; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 10px; border: none; border-radius: 4px;">🔄 Restart Pipeline</button>` : ''}
               ${!source.isVirtual ? `<button class="delete-source-btn" data-src-id="${source.id}" title="Delete source" style="background: #fde6e1; color: #d85b48; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🗑 Delete</button>` : ''}
-            </div>
           </div>
           <h3 style="margin-top: 6px; margin-bottom: 4px;">${escapeHtml(title)}</h3>
           <p>${source.bytes > 0 ? formatBytes(source.bytes) + ' · ' : ''}<span style="color: #1f8255; font-weight: 600;">${mcqCount} MCQs in database</span>${source.isVirtual ? ' <span style="font-size: 10px; color: #d85b48; font-weight: bold;">[PDF Deleted]</span>' : ''}</p>
@@ -455,6 +454,14 @@ function renderSources(sources) {
         </div>
       </article>`;
     }).join('');
+
+    container.querySelectorAll('.preview-source-btn').forEach(btn => {
+      btn.onclick = () => {
+        const sId = btn.dataset.srcId;
+        const source = (effectiveSources || []).find(s => s.id === sId);
+        if (source) openCompletionModal(source, globalQuestions);
+      };
+    });
 
     container.querySelectorAll('.regen-source-btn').forEach(btn => {
       btn.onclick = () => {
@@ -587,7 +594,23 @@ function renderQuestionsTable(questions) {
     filtered = filtered.filter(q => q.status === currentFilter);
   }
   if (currentSourceFilter !== 'all') {
-    filtered = filtered.filter(q => q.sourceId === currentSourceFilter || q.sourceTitle === currentSourceFilter);
+    const selectedSource = (globalSources || []).find(s => s.id === currentSourceFilter || s.title === currentSourceFilter);
+    const targetId = selectedSource ? selectedSource.id : currentSourceFilter;
+    const targetTitle = selectedSource ? (selectedSource.title || selectedSource.filename) : currentSourceFilter;
+    const targetTitleClean = (targetTitle || '').replace(/\.pdf$/i, '').toLowerCase().trim();
+
+    filtered = filtered.filter(q => {
+      const qSourceId = q.sourceId;
+      const qTitle = (q.sourceTitle || q.book || '').trim();
+      const qTitleClean = qTitle.replace(/\.pdf$/i, '').toLowerCase().trim();
+
+      return qSourceId === targetId ||
+             q.sourceTitle === currentSourceFilter ||
+             q.sourceId === currentSourceFilter ||
+             qTitle === targetTitle ||
+             (targetTitleClean && qTitleClean === targetTitleClean) ||
+             (selectedSource && q.sourceFilename && q.sourceFilename === selectedSource.filename);
+    });
   }
   if (currentChapterFilter !== 'all') {
     filtered = filtered.filter(q => (q.chapter && q.chapter.trim() === currentChapterFilter) || (q.topic && q.topic.trim() === currentChapterFilter));
@@ -750,7 +773,19 @@ function openCompletionModal(source, questions) {
   const listContainer = $('#completion-mcq-list');
   if (!modalElem || !listContainer) return;
 
-  const generatedList = questions.filter(q => source.latestGeneratedQuestionIds && source.latestGeneratedQuestionIds.includes(q.id));
+  const targetTitleClean = (source.title || source.filename || '').replace(/\.pdf$/i, '').toLowerCase().trim();
+
+  let generatedList = [];
+  if (source.latestGeneratedQuestionIds && source.latestGeneratedQuestionIds.length > 0) {
+    generatedList = questions.filter(q => source.latestGeneratedQuestionIds.includes(q.id));
+  }
+  if (generatedList.length === 0) {
+    generatedList = questions.filter(q => {
+      const qTitleClean = (q.sourceTitle || q.book || '').replace(/\.pdf$/i, '').toLowerCase().trim();
+      return q.sourceId === source.id || (targetTitleClean && qTitleClean === targetTitleClean);
+    });
+  }
+
   if (generatedList.length === 0) return;
   
   titleElem.textContent = `${generatedList.length} MCQs Generated`;
