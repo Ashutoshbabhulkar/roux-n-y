@@ -591,6 +591,63 @@ CRITICAL RULES:
   }
 }
 
+async function syncToCloudStorage(data) {
+  const gistId = process.env.GIST_ID;
+  const ghToken = process.env.GITHUB_TOKEN;
+  if (!gistId || !ghToken) return;
+
+  try {
+    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${ghToken}`,
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'Roux-N-Y-App',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: {
+          'roux-ny-data.json': {
+            content: JSON.stringify(data, null, 2)
+          }
+        }
+      })
+    });
+    if (res.ok) {
+      console.log('[Roux N Y Cloud Sync] Data synced to free GitHub Gist cloud storage.');
+    }
+  } catch (err) {
+    console.warn('[Roux N Y Cloud Sync] Sync warning:', err.message);
+  }
+}
+
+async function hydrateFromCloudStorage() {
+  const gistId = process.env.GIST_ID;
+  const ghToken = process.env.GITHUB_TOKEN;
+  if (!gistId) return null;
+
+  try {
+    const headers = { 'User-Agent': 'Roux-N-Y-App' };
+    if (ghToken) headers['Authorization'] = `Bearer ${ghToken}`;
+    
+    const res = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
+    if (res.ok) {
+      const gistData = await res.json();
+      const fileObj = gistData.files && gistData.files['roux-ny-data.json'];
+      if (fileObj && fileObj.content) {
+        const parsed = JSON.parse(fileObj.content);
+        if (parsed && Array.isArray(parsed.questions)) {
+          console.log(`[Roux N Y Cloud Sync] Restored ${parsed.questions.length} MCQs & ${parsed.sources ? parsed.sources.length : 0} sources from GitHub Gist.`);
+          return parsed;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Roux N Y Cloud Sync] Hydration warning:', err.message);
+  }
+  return null;
+}
+
 let writeQueue = Promise.resolve();
 
 async function writeData(data) {
@@ -608,6 +665,7 @@ async function writeData(data) {
         console.error('[Roux N Y Storage] Direct write error:', directErr.message);
       }
     }
+    syncToCloudStorage(data).catch(() => {});
   }).catch(err => {
     console.error('[Roux N Y Storage] Write queue exception:', err.message);
   });
@@ -617,9 +675,18 @@ async function writeData(data) {
 async function ensureStorage() {
   await Promise.all(Object.values(config.directories).map(dir => mkdir(join(storageRoot, dir), { recursive: true })));
   try {
-    await stat(dataFile);
+    const stats = await stat(dataFile);
+    if (stats.size <= 50) {
+      const cloudData = await hydrateFromCloudStorage();
+      if (cloudData) await writeData(cloudData);
+    }
   } catch {
-    await writeData(seed);
+    const cloudData = await hydrateFromCloudStorage();
+    if (cloudData) {
+      await writeData(cloudData);
+    } else {
+      await writeData(seed);
+    }
   }
 }
 

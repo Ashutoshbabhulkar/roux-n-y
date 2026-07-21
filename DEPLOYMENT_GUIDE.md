@@ -1,38 +1,47 @@
-# Roux N Y - Database Persistence & Deployment Guide
+# Roux N Y - 100% Free Database Persistence & Cloud Sync Guide
 
-## 1. Why Data Disappears on Free Cloud Hosting (Render)
-By default, free cloud instances (like Render Free Tier) use **ephemeral container disks**. When the server:
-- Spins down after inactivity
-- Auto-redeploys a new Git commit
-- Restarts after a crash
-
-...the local container directory (`/opt/render/project/src/storage`) is recreated from scratch, causing locally generated MCQs to reset to initial state.
+Since Render's free tier does not support paid persistent disk attachments, we have implemented **two 100% free solutions** that require **0 dollars per month**!
 
 ---
 
-## 2. Permanent Fixes Implemented in Code
+## Solution 1: Built-In 1-Click Backup & Restore (UI - Instant & Zero Setup)
 
-### A. Auto-Detection of Render Persistent Disks (`/var/data` / `/data`)
-The application server (`server.mjs`) automatically checks for persistent cloud mounts:
-- If `/var/data` exists, data is stored in `/var/data/roux-ny-data.json`.
-- If `/data` exists, data is stored in `/data/roux-ny-data.json`.
-- If `STORAGE_ROOT` environment variable is defined in Render, it writes to that folder.
-
-### B. Built-In 1-Click Database Backup & Restore (UI)
 In the app under **Exports & Database Protection**:
-1. **💾 Download Full DB Backup (.json):** Downloads a complete JSON snapshot of all generated MCQs, sources, and editorial logs.
-2. **📥 Restore DB from Backup File:** One-click upload to restore all MCQs and sources anytime!
+1. **💾 Download Full DB Backup (.json):** Download a single `.json` file containing all your sources, generated MCQs, and editorial history.
+2. **📥 Restore DB from Backup File:** Whenever Render restarts or redeploys, click this button to upload your backup file. All MCQs and sources are immediately restored to the live application!
 
 ---
 
-## 3. Recommended Render Setup for 100% Zero-Loss Persistence
+## Solution 2: Automatic Background Cloud Sync via Free GitHub Gist (0 Cost & Fully Automatic)
 
-To make your database 100% permanent on Render without ever downloading manual backups:
+You can connect a free GitHub Gist to auto-sync your database. Whenever an MCQ is generated or edited, it automatically updates your private GitHub Gist in the background. When Render restarts, the server auto-downloads the latest MCQs from your Gist!
 
-1. Open your **Render Dashboard** -> Select `roux-n-y` service.
-2. Click **Disks** in the left sidebar -> Click **Add Disk**.
-3. Set Mount Path: `/var/data`
-4. Set Size: `1 GB` (or default).
-5. Click **Save**.
+### Setup Instructions (Takes 2 minutes):
 
-Once attached, all textbook uploads and generated MCQs will be preserved **permanently** across all restarts, updates, and redeployments!
+1. **Create a Free Secret Gist:**
+   - Go to [gist.github.com](https://gist.github.com).
+   - Filename: `roux-ny-data.json`
+   - Content: `{ "sources": [], "questions": [], "activity": [] }`
+   - Click **Create Secret Gist** (or Public Gist).
+   - Copy the Gist ID from the browser URL (e.g. `https://gist.github.com/username/` -> `a1b2c3d4e5f67890`).
+
+2. **Generate a Free GitHub Token:**
+   - Go to [GitHub Developer Settings -> Personal Access Tokens (Tokens classic)](https://github.com/settings/tokens).
+   - Click **Generate new token (classic)**.
+   - Select scope: `gist` (Create and update gists).
+   - Copy the generated token string (`ghp_...`).
+
+3. **Add to Render Environment Variables:**
+   - Open your **Render Dashboard** -> Select `roux-n-y`.
+   - Click **Environment** in the left sidebar.
+   - Add Environment Variables:
+     - `GIST_ID` = `YOUR_GIST_ID_HERE`
+     - `GITHUB_TOKEN` = `YOUR_GITHUB_TOKEN_HERE`
+   - Click **Save Changes**.
+
+---
+
+### Results:
+- **0 cost permanently.**
+- All MCQs & sources auto-save to cloud storage.
+- Restores automatically on every Render restart!
