@@ -866,12 +866,42 @@ $('#qbank-filters').querySelectorAll('.filter').forEach(btn => {
   };
 });
 
-// Bind Exports download buttons
+// Bind Exports & Backup download buttons
 $('#export-csv').onclick = () => window.location.href = '/api/exports/csv';
 $('#export-excel').onclick = () => window.location.href = '/api/exports/csv'; // excel opens csv directly
 $('#export-json').onclick = () => window.location.href = '/api/exports/json';
 $('#export-sql').onclick = () => window.location.href = '/api/exports/sql';
-$('#qbank-export-btn').onclick = () => window.location.href = '/api/exports/csv';
+if ($('#qbank-export-btn')) $('#qbank-export-btn').onclick = () => window.location.href = '/api/exports/csv';
+if ($('#btn-export-backup')) $('#btn-export-backup').onclick = () => window.location.href = '/api/exports/backup';
+
+const restoreInput = $('#restore-db-input');
+if (restoreInput) {
+  restoreInput.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!payload.questions || !payload.sources) {
+        throw new Error('Invalid backup file. Must contain sources and questions.');
+      }
+      if (!confirm(`Restore database from "${file.name}"? This will update your database with ${payload.questions.length} questions and ${payload.sources.length} sources.`)) return;
+      
+      const res = await fetch('/api/admin/restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error('Failed to restore database');
+      alert(`Database successfully restored! Loaded ${payload.questions.length} MCQs.`);
+      await loadDashboard();
+    } catch (err) {
+      alert('Restore Error: ' + err.message);
+    } finally {
+      restoreInput.value = '';
+    }
+  };
+}
 
 // Main Load Dashboard
 async function loadDashboard() {

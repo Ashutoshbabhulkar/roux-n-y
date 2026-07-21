@@ -35,8 +35,22 @@ try {
   // .env file might not exist, ignore
 }
 
+import { existsSync } from 'node:fs';
+
 const config = JSON.parse((await readFile(join(projectRoot, 'storage.config.json'), 'utf8')).replace(/^\uFEFF/, ''));
-const storageRoot = process.env.STORAGE_ROOT || config.storageRoot || join(projectRoot, 'storage');
+
+function resolveStorageRoot() {
+  if (process.env.STORAGE_ROOT) {
+    return resolve(process.env.STORAGE_ROOT);
+  }
+  try {
+    if (existsSync('/var/data')) return '/var/data';
+    if (existsSync('/data')) return '/data';
+  } catch (e) {}
+  return config.storageRoot ? resolve(config.storageRoot) : join(projectRoot, 'storage');
+}
+
+const storageRoot = resolveStorageRoot();
 const dataFile = join(storageRoot, 'roux-ny-data.json');
 const port = Number(process.env.PORT || 4173);
 const maxUploadBytes = 2 * 1024 * 1024 * 1024;
@@ -1041,6 +1055,30 @@ async function api(req, res, url) {
       'Content-Disposition': 'attachment; filename="roux-ny-questions.sql"' 
     });
     return res.end(sql);
+  }
+
+  // Backup & Restore Database
+  if (req.method === 'GET' && url.pathname === '/api/exports/backup') {
+    const data = await readData();
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename=roux-ny-db-backup-${Date.now()}.json`
+    });
+    return res.end(JSON.stringify(data, null, 2));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/restore') {
+    try {
+      const raw = (await body(req)).toString('utf8');
+      const restored = JSON.parse(raw);
+      if (!restored || typeof restored !== 'object' || !Array.isArray(restored.questions) || !Array.isArray(restored.sources)) {
+        return send(res, 400, { error: 'Invalid backup format. Must contain sources and questions.' });
+      }
+      await writeData(restored);
+      return send(res, 200, { success: true, questionsCount: restored.questions.length, sourcesCount: restored.sources.length });
+    } catch (err) {
+      return send(res, 500, { error: 'Failed to restore database: ' + err.message });
+    }
   }
 
   send(res, 404, { error: 'Route not found.' });

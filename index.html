@@ -127,12 +127,26 @@
     </section>
     
     <section id="exports" class="view">
-      <div class="view-heading"><div><p class="eyebrow">PUBLISHING</p><h2>Exports</h2></div></div>
-      <div class="export-grid">
+      <div class="view-heading"><div><p class="eyebrow">PUBLISHING &amp; DATA SAFETY</p><h2>Exports &amp; Database Protection</h2></div></div>
+      <div class="export-grid" style="margin-bottom: 25px;">
         <button id="export-csv">CSV <small>Spreadsheet-ready</small><span>→</span></button>
         <button id="export-excel">Excel <small>Editorial workbook (via CSV)</small><span>→</span></button>
         <button id="export-json">JSON <small>App integration</small><span>→</span></button>
         <button id="export-sql">SQL <small>Database import</small><span>→</span></button>
+      </div>
+
+      <div class="panel" style="padding: 20px; text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;">
+        <p class="eyebrow" style="color: var(--mint);">🛡️ DATABASE BACKUP &amp; RECOVERY</p>
+        <h3 style="margin: 4px 0 8px 0;">Backup &amp; Restore Complete MCQ Database</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">Download a complete snapshot of all MCQs, sources, and editorial history, or restore a previously saved database backup file.</p>
+        
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+          <button id="btn-export-backup" class="primary" style="padding: 10px 18px; font-weight: 600;">💾 Download Full DB Backup (.json)</button>
+          <label for="restore-db-input" class="btn-secondary" style="padding: 10px 18px; font-weight: 600; cursor: pointer; display: inline-block;">
+            📥 Restore DB from Backup File
+          </label>
+          <input type="file" id="restore-db-input" accept=".json" style="display: none;">
+        </div>
       </div>
     </section>
   </main>
