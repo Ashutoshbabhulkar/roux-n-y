@@ -866,42 +866,57 @@ $('#qbank-filters').querySelectorAll('.filter').forEach(btn => {
   };
 });
 
-// Bind Exports & Backup download buttons
-$('#export-csv').onclick = () => window.location.href = '/api/exports/csv';
-$('#export-excel').onclick = () => window.location.href = '/api/exports/csv'; // excel opens csv directly
-$('#export-json').onclick = () => window.location.href = '/api/exports/json';
-$('#export-sql').onclick = () => window.location.href = '/api/exports/sql';
-if ($('#qbank-export-btn')) $('#qbank-export-btn').onclick = () => window.location.href = '/api/exports/csv';
-if ($('#btn-export-backup')) $('#btn-export-backup').onclick = () => window.location.href = '/api/exports/backup';
+// Bind Exports & Backup & Word (.docx) download buttons
+const triggerBackup = () => window.location.href = '/api/exports/backup';
+const triggerDocx = () => window.location.href = '/api/exports/docx';
 
-const restoreInput = $('#restore-db-input');
-if (restoreInput) {
-  restoreInput.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      if (!payload.questions || !payload.sources) {
-        throw new Error('Invalid backup file. Must contain sources and questions.');
-      }
-      if (!confirm(`Restore database from "${file.name}"? This will update your database with ${payload.questions.length} questions and ${payload.sources.length} sources.`)) return;
-      
-      const res = await fetch('/api/admin/restore', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) throw new Error('Failed to restore database');
-      alert(`Database successfully restored! Loaded ${payload.questions.length} MCQs.`);
-      await loadDashboard();
-    } catch (err) {
-      alert('Restore Error: ' + err.message);
-    } finally {
-      restoreInput.value = '';
+['#export-csv', '#qbank-export-btn'].forEach(id => {
+  if ($(id)) $(id).onclick = () => window.location.href = '/api/exports/csv';
+});
+if ($('#export-excel')) $('#export-excel').onclick = () => window.location.href = '/api/exports/csv';
+if ($('#export-json')) $('#export-json').onclick = () => window.location.href = '/api/exports/json';
+if ($('#export-sql')) $('#export-sql').onclick = () => window.location.href = '/api/exports/sql';
+
+['#export-docx', '#export-docx-btn'].forEach(id => {
+  if ($(id)) $(id).onclick = triggerDocx;
+});
+
+['#header-backup-btn', '#qbank-backup-btn', '#btn-export-backup'].forEach(id => {
+  if ($(id)) $(id).onclick = triggerBackup;
+});
+
+async function processRestoreFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    if (!payload.questions || !payload.sources) {
+      throw new Error('Invalid backup file. Must contain sources and questions.');
     }
-  };
+    if (!confirm(`Restore database from "${file.name}"? This will update your database with ${payload.questions.length} questions and ${payload.sources.length} sources.`)) return;
+    
+    const res = await fetch('/api/admin/restore', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to restore database');
+    alert(`Database successfully restored! Loaded ${payload.questions.length} MCQs.`);
+    await loadDashboard();
+  } catch (err) {
+    alert('Restore Error: ' + err.message);
+  }
 }
+
+['#header-restore-input', '#qbank-restore-input', '#restore-db-input'].forEach(id => {
+  const elem = $(id);
+  if (elem) {
+    elem.onchange = async (e) => {
+      await processRestoreFile(e.target.files[0]);
+      elem.value = '';
+    };
+  }
+});
 
 // Main Load Dashboard
 async function loadDashboard() {
@@ -912,6 +927,35 @@ async function loadDashboard() {
     
     globalQuestions = data.questions || [];
     globalSources = data.sources || [];
+
+    // Client-side Auto-Backup & Auto-Restore check
+    if (globalQuestions.length > 0) {
+      try {
+        localStorage.setItem('roux_ny_auto_backup', JSON.stringify({ sources: globalSources, questions: globalQuestions, activity: data.activity || [] }));
+      } catch (e) {}
+    } else {
+      // If server database is currently empty, check if we have a saved local auto-backup to restore automatically!
+      const savedBackup = localStorage.getItem('roux_ny_auto_backup');
+      if (savedBackup) {
+        try {
+          const autoData = JSON.parse(savedBackup);
+          if (autoData && Array.isArray(autoData.questions) && autoData.questions.length > 0) {
+            console.log('[Roux N Y Auto-Restore] Hydrating database from browser auto-backup...');
+            await fetch('/api/admin/restore', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(autoData)
+            });
+            const refetch = await fetch('/api/dashboard');
+            if (refetch.ok) {
+              const freshData = await refetch.json();
+              globalQuestions = freshData.questions || [];
+              globalSources = freshData.sources || [];
+            }
+          }
+        } catch (e) {}
+      }
+    }
     
     // Update nav queues count
     const reviewQ = globalQuestions.filter(q => q.status === 'review');

@@ -38,7 +38,12 @@
           <small id="pill-meta">⏱ 00:00 · ⏳ Calc...</small>
         </div>
       </div>
-      <div class="header-actions"><button class="primary" id="upload-open">+ Add source</button></div>
+      <div class="header-actions" style="display: flex; gap: 8px; align-items: center;">
+        <button id="header-backup-btn" class="btn-secondary" style="font-weight: 600; padding: 8px 12px; border-radius: 6px;" title="Download database backup JSON">💾 Backup DB</button>
+        <label for="header-restore-input" class="btn-secondary" style="font-weight: 600; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: inline-block;" title="Restore database from backup JSON">📥 Restore DB</label>
+        <input type="file" id="header-restore-input" accept=".json" style="display: none;">
+        <button class="primary" id="upload-open">+ Add source</button>
+      </div>
     </header>
 
     <section id="dashboard" class="view visible">
@@ -80,7 +85,16 @@
     </section>
 
     <section id="questions" class="view">
-      <div class="view-heading"><div><p class="eyebrow">EDITORIAL WORKBENCH</p><h2>Question bank</h2></div><button class="primary" id="qbank-export-btn">Export questions</button></div>
+      <div class="view-heading">
+        <div><p class="eyebrow">EDITORIAL WORKBENCH</p><h2>Question bank</h2></div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button class="primary" id="export-docx-btn" style="background: #107c41; color: white; border: none; font-weight: 600;">📄 Word (.docx)</button>
+          <button class="primary" id="qbank-export-btn">CSV Export</button>
+          <button class="btn-secondary" id="qbank-backup-btn" style="font-weight: 600;">💾 Backup</button>
+          <label for="qbank-restore-input" class="btn-secondary" style="cursor: pointer; padding: 9px 14px; font-weight: 600; border-radius: 6px; display: inline-block;">📥 Restore</label>
+          <input type="file" id="qbank-restore-input" accept=".json" style="display: none;">
+        </div>
+      </div>
       <div class="filters" id="qbank-filters" style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
         <div style="display: flex; gap: 8px;">
           <button class="filter selected" data-filter="all">All questions <b id="filter-all-count">0</b></button>
@@ -129,6 +143,7 @@
     <section id="exports" class="view">
       <div class="view-heading"><div><p class="eyebrow">PUBLISHING &amp; DATA SAFETY</p><h2>Exports &amp; Database Protection</h2></div></div>
       <div class="export-grid" style="margin-bottom: 25px;">
+        <button id="export-docx" style="background: #107c41; color: white; border: none;">Word (.docx) <small>Tabulated (1 MCQ / Page)</small><span>→</span></button>
         <button id="export-csv">CSV <small>Spreadsheet-ready</small><span>→</span></button>
         <button id="export-excel">Excel <small>Editorial workbook (via CSV)</small><span>→</span></button>
         <button id="export-json">JSON <small>App integration</small><span>→</span></button>

@@ -244,16 +244,17 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               console.log(`[Roux N Y] Successfully generated response with Gemini ${model}`);
               return text;
             }
-          } else if (res.status === 429) {
-            lastError = `429 Rate Limited on Direct ${model}`;
-            console.warn(`[Roux N Y] Rate limited on ${model}. Instantly switching to next candidate model...`);
-            if (statusCallback) statusCallback(`Rate limited on ${model}. Instantly trying next model...`, model);
-            // INSTANT FALLBACK: Do not sleep 60s, move immediately to next model
-            continue;
           } else {
             const errText = await res.text();
             lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
             console.warn(`[Roux N Y] ${lastError}`);
+            
+            // INSTANT PROVIDER SWITCH: If payment (402), quota/forbidden (403), or billing/key error, break loop & switch provider immediately!
+            if (res.status === 402 || res.status === 403 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
+              console.warn(`[Roux N Y] Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
+              if (statusCallback) statusCallback(`Quota/Billing limit on Gemini. Switching to OpenRouter/Groq...`, model);
+              break; // Jump to OpenRouter immediately
+            }
             continue;
           }
         } catch (err) {
@@ -308,6 +309,11 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const errText = await res.text();
             lastError = `OpenRouter ${model} (${res.status}): ${errText.slice(0, 100)}`;
             console.warn(`[Roux N Y] ${lastError}`);
+            if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('credit') || errText.toLowerCase().includes('balance') || errText.toLowerCase().includes('quota')) {
+              console.warn(`[Roux N Y] Payment/Quota error on OpenRouter (${res.status}). Instantly switching provider...`);
+              if (statusCallback) statusCallback(`Quota/Billing limit on OpenRouter. Switching to Groq...`, model);
+              break; // Jump to Groq immediately
+            }
             continue;
           }
         } catch (err) {
@@ -355,6 +361,11 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const errText = await res.text();
             lastError = `Groq ${model} (${res.status}): ${errText.slice(0, 100)}`;
             console.warn(`[Roux N Y] ${lastError}`);
+            if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('rate') || errText.toLowerCase().includes('quota')) {
+              console.warn(`[Roux N Y] Quota/Rate limit on Groq (${res.status}). Instantly trying next candidate...`);
+              if (statusCallback) statusCallback(`Quota limit on Groq (${model}). Trying next...`, model);
+              break;
+            }
             continue;
           }
         } catch (err) {
@@ -993,7 +1004,155 @@ async function api(req, res, url) {
     return send(res, 200, { question });
   }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
   // Exports
+  if (req.method === 'GET' && url.pathname === '/api/exports/docx') {
+    const data = await readData();
+    const questions = data.questions || [];
+    
+    let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset="utf-8">
+<title>Roux N Y MCQs Word Export</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 0.8in;
+  }
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 10pt;
+    color: #000000;
+    line-height: 1.35;
+  }
+  .page-break {
+    page-break-before: always;
+    clear: both;
+    mso-break-type: page-break;
+  }
+  table.mcq-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+  table.mcq-table td {
+    border: 1px solid #000000;
+    padding: 6px 8px;
+    vertical-align: top;
+    font-size: 9.5pt;
+  }
+  .lbl {
+    width: 14%;
+    font-weight: normal;
+  }
+  .sol-heading {
+    font-weight: bold;
+    margin-top: 8px;
+    margin-bottom: 3px;
+    font-size: 9.5pt;
+  }
+</style>
+</head>
+<body>`;
+
+    questions.forEach((q, index) => {
+      const correctOpt = (q.correct_option || 'A').toUpperCase().trim();
+      const optAText = q.option_a || '';
+      const optBText = q.option_b || '';
+      const optCText = q.option_c || '';
+      const optDText = q.option_d || '';
+      
+      let answerText = '';
+      if (correctOpt === 'A') answerText = `A. ${optAText}`;
+      else if (correctOpt === 'B') answerText = `B. ${optBText}`;
+      else if (correctOpt === 'C') answerText = `C. ${optCText}`;
+      else if (correctOpt === 'D') answerText = `D. ${optDText}`;
+      else answerText = `${correctOpt}. ${optAText}`;
+
+      const whyWrongArr = [];
+      if (correctOpt !== 'A' && q.why_a_wrong) whyWrongArr.push(`A. ${q.why_a_wrong}`);
+      if (correctOpt !== 'B' && q.why_b_wrong) whyWrongArr.push(`B. ${q.why_b_wrong}`);
+      if (correctOpt !== 'C' && q.why_c_wrong) whyWrongArr.push(`C. ${q.why_c_wrong}`);
+      if (correctOpt !== 'D' && q.why_d_wrong) whyWrongArr.push(`D. ${q.why_d_wrong}`);
+
+      const sourcePdfName = q.sourceTitle || q.book || 'Bailey and Love\'s Short Practice of Surgery 28th Edition(1).pdf';
+
+      if (index > 0) {
+        html += `<div class="page-break"></div>`;
+      }
+
+      html += `<table class="mcq-table">
+  <tr>
+    <td class="lbl">Question</td>
+    <td colspan="2">${escapeHtml(q.question || '')}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Type</td>
+    <td colspan="2">multiple_choice</td>
+  </tr>
+  <tr>
+    <td class="lbl">Option</td>
+    <td>A. ${escapeHtml(optAText)}</td>
+    <td style="width: 15%;">${correctOpt === 'A' ? 'correct' : 'incorrect'}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Option</td>
+    <td>B. ${escapeHtml(optBText)}</td>
+    <td style="width: 15%;">${correctOpt === 'B' ? 'correct' : 'incorrect'}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Option</td>
+    <td>C. ${escapeHtml(optCText)}</td>
+    <td style="width: 15%;">${correctOpt === 'C' ? 'correct' : 'incorrect'}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Option</td>
+    <td>D. ${escapeHtml(optDText)}</td>
+    <td style="width: 15%;">${correctOpt === 'D' ? 'correct' : 'incorrect'}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Solution</td>
+    <td colspan="2">
+      <div>Answer: ${escapeHtml(answerText)}</div>
+      
+      <div class="sol-heading">Explanation</div>
+      <div>${escapeHtml(q.explanation || '')}</div>
+      
+      ${whyWrongArr.length > 0 ? `<div class="sol-heading">Why the Other Options are Incorrect</div>${whyWrongArr.map(w => `<div>${escapeHtml(w)}</div>`).join('')}` : ''}
+      
+      ${q.clinical_pearl ? `<div class="sol-heading">NEET SS High-Yield Pearl</div><div>${escapeHtml(q.clinical_pearl)}</div>` : ''}
+      
+      <div class="sol-heading">References</div>
+      <div>${escapeHtml(q.reference || (q.book ? `${q.book}, ${q.edition || ''}, ${q.chapter || ''}` : 'Bailey & Love’s Short Practice of Surgery, 28th Edition'))}</div>
+      <div>${escapeHtml(sourcePdfName)}</div>
+    </td>
+  </tr>
+  <tr>
+    <td class="lbl">Marks</td>
+    <td>1</td>
+    <td>0</td>
+  </tr>
+</table>`;
+    });
+
+    html += `</body></html>`;
+
+    res.writeHead(200, {
+      'Content-Type': 'application/msword; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="roux-ny-mcqs-tabulated.docx"'
+    });
+    return res.end(html);
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/exports/csv') {
     const data = await readData();
     const headers = [
