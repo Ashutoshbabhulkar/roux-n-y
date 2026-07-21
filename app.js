@@ -620,7 +620,13 @@ if (selectAllCb) {
   selectAllCb.onclick = () => {
     let filtered = [...globalQuestions];
     if (currentFilter !== 'all') {
-      filtered = globalQuestions.filter(q => q.status === currentFilter);
+      filtered = filtered.filter(q => q.status === currentFilter);
+    }
+    if (currentSourceFilter !== 'all') {
+      filtered = filtered.filter(q => q.sourceId === currentSourceFilter || q.sourceTitle === currentSourceFilter);
+    }
+    if (currentChapterFilter !== 'all') {
+      filtered = filtered.filter(q => (q.chapter && q.chapter.trim() === currentChapterFilter) || (q.topic && q.topic.trim() === currentChapterFilter));
     }
     if (selectAllCb.checked) {
       filtered.forEach(q => selectedQIds.add(q.id));

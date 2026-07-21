@@ -168,7 +168,9 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
   const openrouterModels = [
     'google/gemini-2.0-flash-001',
     'google/gemini-2.0-flash-lite:free',
-    'meta-llama/llama-3.3-70b-instruct:free'
+    'google/gemini-flash-1.5-8b',
+    'anthropic/claude-3.5-haiku',
+    'openai/gpt-4o-mini'
   ];
 
   const groqModels = [
