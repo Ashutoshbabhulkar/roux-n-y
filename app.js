@@ -348,7 +348,10 @@ function renderPriorityQueue(questions) {
 }
 
 function getEffectiveSources(sources, questions) {
-  const list = [...(sources || [])];
+  const list = (sources || []).map(s => ({
+    ...s,
+    title: s.title || s.filename || 'Surgical Textbook'
+  }));
   const knownTitles = new Set(list.map(s => s.title));
   const knownIds = new Set(list.map(s => s.id));
   
@@ -378,98 +381,103 @@ function renderSources(sources) {
   const container = $('#library-grid-container');
   if (!container) return;
   
-  const effectiveSources = getEffectiveSources(sources, globalQuestions);
-  
-  if (!effectiveSources || effectiveSources.length === 0) {
-    container.innerHTML = `<div class="empty-state-large">
-      <h3>Your source library is empty</h3>
-      <p>Upload standard surgical textbook PDFs (e.g. Bailey & Love, Sabiston, Schwartz) to start the source-grounded MCQ pipeline.</p>
-      <button class="primary" onclick="openModal()">+ Add textbook</button>
-    </div>`;
-    return;
-  }
-  
-  container.innerHTML = effectiveSources.map(source => {
-    const isFailed = source.status === 'failed';
-    const isProcessing = source.status === 'processing';
-    const percentage = isFailed ? 0 : isProcessing ? (source.progress || 0) : source.status === 'queued' ? 0 : 100;
-    const cover = source.title.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase();
-    const coverClass = source.status === 'ready' ? 'large-book sab' : 'large-book';
-    const statusClass = source.status === 'ready' ? 'approved' : isFailed ? 'rejected' : 'pending';
+  try {
+    const effectiveSources = getEffectiveSources(sources, globalQuestions);
     
-    const timeMetrics = isProcessing ? computeTimeMetrics(source) : null;
-    const statusText = isProcessing 
-      ? (source.statusMessage || `Processing (${percentage}%)`) 
-      : isFailed 
-      ? `Error: ${source.error || 'Failed'}` 
-      : source.status === 'queued' 
-      ? 'Queued for processing' 
-      : source.statusMessage || 'Complete';
+    if (!effectiveSources || effectiveSources.length === 0) {
+      container.innerHTML = `<div class="empty-state-large">
+        <h3>Your source library is empty</h3>
+        <p>Upload standard surgical textbook PDFs (e.g. Bailey & Love, Sabiston, Schwartz) to start the source-grounded MCQ pipeline.</p>
+        <button class="primary" onclick="openModal()">+ Add textbook</button>
+      </div>`;
+      return;
+    }
+    
+    container.innerHTML = effectiveSources.map(source => {
+      const title = source.title || source.filename || 'Surgical Textbook';
+      const isFailed = source.status === 'failed';
+      const isProcessing = source.status === 'processing';
+      const percentage = isFailed ? 0 : isProcessing ? (source.progress || 0) : source.status === 'queued' ? 0 : 100;
+      const cover = title.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'PDF';
+      const coverClass = source.status === 'ready' ? 'large-book sab' : 'large-book';
+      const statusClass = source.status === 'ready' ? 'approved' : isFailed ? 'rejected' : 'pending';
+      
+      const timeMetrics = isProcessing ? computeTimeMetrics(source) : null;
+      const statusText = isProcessing 
+        ? (source.statusMessage || `Processing (${percentage}%)`) 
+        : isFailed 
+        ? `Error: ${source.error || 'Failed'}` 
+        : source.status === 'queued' 
+        ? 'Queued for processing' 
+        : source.statusMessage || 'Complete';
 
-    const mcqCount = globalQuestions.filter(q => q.sourceId === source.id || q.sourceTitle === source.title).length;
+      const mcqCount = globalQuestions.filter(q => q.sourceId === source.id || q.sourceTitle === title).length;
 
-    return `<article class="source-card" style="position: relative; ${isFailed ? 'border-color: #fde6e1;' : ''}">
-      <div class="${coverClass}" style="${isFailed ? 'background: #fde6e1; color: #d85b48;' : ''}">${escapeHtml(cover)}</div>
-      <div style="flex: 1;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-          <span class="${statusClass}">● ${escapeHtml(statusLabel(source.status))}</span>
-          <div style="display: flex; gap: 4px;">
-            ${source.status === 'ready' && !source.isVirtual ? `<button class="regen-source-btn" data-src-id="${source.id}" title="Generate more MCQs from this textbook" style="background: #e6f3ed; color: #1f8255; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">⚡ Generate More</button>` : ''}
-            ${isFailed ? `<button class="retry-source-btn" data-src-id="${source.id}" title="Retry processing" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🔄 Retry</button>` : ''}
-            ${!source.isVirtual ? `<button class="delete-source-btn" data-src-id="${source.id}" title="Delete source" style="background: #fde6e1; color: #d85b48; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🗑 Delete</button>` : ''}
+      return `<article class="source-card" style="position: relative; ${isFailed ? 'border-color: #fde6e1;' : ''}">
+        <div class="${coverClass}" style="${isFailed ? 'background: #fde6e1; color: #d85b48;' : ''}">${escapeHtml(cover)}</div>
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <span class="${statusClass}">● ${escapeHtml(statusLabel(source.status))}</span>
+            <div style="display: flex; gap: 4px;">
+              ${source.status === 'ready' && !source.isVirtual ? `<button class="regen-source-btn" data-src-id="${source.id}" title="Generate more MCQs from this textbook" style="background: #e6f3ed; color: #1f8255; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">⚡ Generate More</button>` : ''}
+              ${isFailed ? `<button class="retry-source-btn" data-src-id="${source.id}" title="Retry processing" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🔄 Retry</button>` : ''}
+              ${!source.isVirtual ? `<button class="delete-source-btn" data-src-id="${source.id}" title="Delete source" style="background: #fde6e1; color: #d85b48; font-size: 11px; font-weight: bold; cursor: pointer; padding: 4px 8px; border: none; border-radius: 4px;">🗑 Delete</button>` : ''}
+            </div>
           </div>
+          <h3 style="margin-top: 6px; margin-bottom: 4px;">${escapeHtml(title)}</h3>
+          <p>${source.bytes > 0 ? formatBytes(source.bytes) + ' · ' : ''}<span style="color: #1f8255; font-weight: 600;">${mcqCount} MCQs in database</span>${source.isVirtual ? ' <span style="font-size: 10px; color: #d85b48; font-weight: bold;">[PDF Deleted]</span>' : ''}</p>
+          ${isFailed 
+            ? `<p style="color: #d85b48; font-size: 12px; margin-top: 6px;"><strong>Error:</strong> ${escapeHtml(source.error || 'Processing failed.')}</p>`
+            : `<div class="progress"><i style="width:${percentage}%"></i></div>
+               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                 <small>${percentage}% complete ${source.pages ? `· ${source.pages} pages` : ''}</small>
+                 ${isProcessing && timeMetrics ? `<small style="font-family: 'DM Mono'; color: #22645a; font-weight: 600;">⏱ ${timeMetrics.formattedElapsed} | ⏳ ~${timeMetrics.formattedEta}</small>` : ''}
+               </div>
+               ${isProcessing ? `<small style="display: block; color: var(--muted); margin-top: 4px; font-size: 10px;">${escapeHtml(statusText)}</small>` : ''}`}
         </div>
-        <h3 style="margin-top: 6px; margin-bottom: 4px;">${escapeHtml(source.title)}</h3>
-        <p>${source.bytes > 0 ? formatBytes(source.bytes) + ' · ' : ''}<span style="color: #1f8255; font-weight: 600;">${mcqCount} MCQs in database</span>${source.isVirtual ? ' <span style="font-size: 10px; color: #d85b48; font-weight: bold;">[PDF Deleted]</span>' : ''}</p>
-        ${isFailed 
-          ? `<p style="color: #d85b48; font-size: 12px; margin-top: 6px;"><strong>Error:</strong> ${escapeHtml(source.error || 'Processing failed.')}</p>`
-          : `<div class="progress"><i style="width:${percentage}%"></i></div>
-             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-               <small>${percentage}% complete ${source.pages ? `· ${source.pages} pages` : ''}</small>
-               ${isProcessing && timeMetrics ? `<small style="font-family: 'DM Mono'; color: #22645a; font-weight: 600;">⏱ ${timeMetrics.formattedElapsed} | ⏳ ~${timeMetrics.formattedEta}</small>` : ''}
-             </div>
-             ${isProcessing ? `<small style="display: block; color: var(--muted); margin-top: 4px; font-size: 10px;">${escapeHtml(statusText)}</small>` : ''}`}
-      </div>
-    </article>`;
-  }).join('');
+      </article>`;
+    }).join('');
 
-  container.querySelectorAll('.regen-source-btn').forEach(btn => {
-    btn.onclick = () => {
-      pendingRegenSourceId = btn.dataset.srcId;
-      const source = sources.find(s => s.id === pendingRegenSourceId);
-      if (source) {
-        $('#regenerate-source-title').textContent = `Generate More MCQs from "${source.title}"`;
-        $('#regen-page-range').value = source.pageRange || '';
-      }
-      $('#regenerate-source-modal').classList.add('show');
-    };
-  });
+    container.querySelectorAll('.regen-source-btn').forEach(btn => {
+      btn.onclick = () => {
+        pendingRegenSourceId = btn.dataset.srcId;
+        const source = (sources || []).find(s => s.id === pendingRegenSourceId);
+        if (source) {
+          $('#regenerate-source-title').textContent = `Generate More MCQs from "${source.title || source.filename}"`;
+          $('#regen-page-range').value = source.pageRange || '';
+        }
+        $('#regenerate-source-modal').classList.add('show');
+      };
+    });
 
-  container.querySelectorAll('.retry-source-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const srcId = btn.dataset.srcId;
-      try {
-        const res = await fetch(`/api/sources/${srcId}/start`, { method: 'POST' });
-        if (!res.ok) throw new Error('Failed to restart source pipeline');
-        await loadDashboard();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-  });
+    container.querySelectorAll('.retry-source-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const srcId = btn.dataset.srcId;
+        try {
+          const res = await fetch(`/api/sources/${srcId}/start`, { method: 'POST' });
+          if (!res.ok) throw new Error('Failed to restart source pipeline');
+          await loadDashboard();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
 
-  container.querySelectorAll('.delete-source-btn').forEach(btn => {
-    btn.onclick = () => {
-      pendingDeleteSourceId = btn.dataset.srcId;
-      const source = sources.find(s => s.id === pendingDeleteSourceId);
-      const mcqs = globalQuestions.filter(q => q.sourceId === pendingDeleteSourceId || q.sourceTitle === (source && source.title));
-      if (source) {
-        $('#delete-source-title').textContent = `Delete "${source.title}"`;
-        $('#delete-source-subtitle').textContent = `This source has ${mcqs.length} generated MCQ(s) currently stored in your database. Select your preferred deletion behavior below:`;
-      }
-      $('#delete-source-modal').classList.add('show');
-    };
-  });
+    container.querySelectorAll('.delete-source-btn').forEach(btn => {
+      btn.onclick = () => {
+        pendingDeleteSourceId = btn.dataset.srcId;
+        const source = (sources || []).find(s => s.id === pendingDeleteSourceId);
+        const mcqs = globalQuestions.filter(q => q.sourceId === pendingDeleteSourceId || q.sourceTitle === (source && (source.title || source.filename)));
+        if (source) {
+          $('#delete-source-title').textContent = `Delete "${source.title || source.filename}"`;
+          $('#delete-source-subtitle').textContent = `This source has ${mcqs.length} generated MCQ(s) currently stored in your database. Select your preferred deletion behavior below:`;
+        }
+        $('#delete-source-modal').classList.add('show');
+      };
+    });
+  } catch (err) {
+    console.error('[Roux N Y UI] renderSources Exception:', err);
+  }
 }
 
 // Render Coverage Audit Page
@@ -477,35 +485,40 @@ function renderCoverage(sources) {
   const container = $('#coverage-container');
   if (!container) return;
   
-  const effectiveSources = getEffectiveSources(sources, globalQuestions);
-  
-  if (!effectiveSources || effectiveSources.length === 0) {
-    container.innerHTML = `<div class="empty-state-large">
-      <h3>No coverage reports available</h3>
-      <p>Upload and process textbooks to analyze content completeness and audit traceability.</p>
-    </div>`;
-    return;
-  }
-  
-  container.innerHTML = effectiveSources.map(source => {
-    const percentage = source.status === 'ready' ? 100 : (source.progress || 0);
-    const pagesPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 1.2));
-    const figuresPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 0.94));
-    const tablesPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 1.0));
-    const algorithmsPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 0.89));
+  try {
+    const effectiveSources = getEffectiveSources(sources, globalQuestions);
     
-    return `<div class="coverage-card panel" style="margin-bottom: 20px;">
-      <p class="eyebrow">SOURCE AUDIT: ${escapeHtml(source.title.toUpperCase())}${source.isVirtual ? ' [PDF DELETED]' : ''}</p>
-      <div class="coverage-number">${percentage}<sup>%</sup></div>
-      <p>Coverage is calculated only when every identified textbook component (headings, paragraphs, tables, figures, algorithms) has been mapped.</p>
-      <div class="coverage-bars">
-        <div><span>Pages</span><i><b style="width:${pagesPercent}%"></b></i><strong>${source.status === 'ready' ? '1,502 / 1,502' : `${Math.round(pagesPercent * 15.02)} / 1,502`}</strong></div>
-        <div><span>Figures</span><i><b style="width:${figuresPercent}%"></b></i><strong>${source.status === 'ready' ? '286 / 286' : `${Math.round(figuresPercent * 2.86)} / 286`}</strong></div>
-        <div><span>Tables</span><i><b style="width:${tablesPercent}%"></b></i><strong>${source.status === 'ready' ? '124 / 124' : `${Math.round(tablesPercent * 1.24)} / 124`}</strong></div>
-        <div><span>Algorithms</span><i><b style="width:${algorithmsPercent}%"></b></i><strong>${source.status === 'ready' ? '45 / 45' : `${Math.round(algorithmsPercent * 0.45)} / 45`}</strong></div>
-      </div>
-    </div>`;
-  }).join('');
+    if (!effectiveSources || effectiveSources.length === 0) {
+      container.innerHTML = `<div class="empty-state-large">
+        <h3>No coverage reports available</h3>
+        <p>Upload and process textbooks to analyze content completeness and audit traceability.</p>
+      </div>`;
+      return;
+    }
+    
+    container.innerHTML = effectiveSources.map(source => {
+      const title = source.title || source.filename || 'Surgical Textbook';
+      const percentage = source.status === 'ready' ? 100 : (source.progress || 0);
+      const pagesPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 1.2));
+      const figuresPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 0.94));
+      const tablesPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 1.0));
+      const algorithmsPercent = source.status === 'ready' ? 100 : Math.min(100, Math.round(percentage * 0.89));
+      
+      return `<div class="coverage-card panel" style="margin-bottom: 20px;">
+        <p class="eyebrow">SOURCE AUDIT: ${escapeHtml(title.toUpperCase())}${source.isVirtual ? ' [PDF DELETED]' : ''}</p>
+        <div class="coverage-number">${percentage}<sup>%</sup></div>
+        <p>Coverage is calculated only when every identified textbook component (headings, paragraphs, tables, figures, algorithms) has been mapped.</p>
+        <div class="coverage-bars">
+          <div><span>Pages</span><i><b style="width:${pagesPercent}%"></b></i><strong>${source.status === 'ready' ? '1,502 / 1,502' : `${Math.round(pagesPercent * 15.02)} / 1,502`}</strong></div>
+          <div><span>Figures</span><i><b style="width:${figuresPercent}%"></b></i><strong>${source.status === 'ready' ? '286 / 286' : `${Math.round(figuresPercent * 2.86)} / 286`}</strong></div>
+          <div><span>Tables</span><i><b style="width:${tablesPercent}%"></b></i><strong>${source.status === 'ready' ? '124 / 124' : `${Math.round(tablesPercent * 1.0)} / 124`}</strong></div>
+          <div><span>Algorithms</span><i><b style="width:${algorithmsPercent}%"></b></i><strong>${source.status === 'ready' ? '45 / 45' : `${Math.round(algorithmsPercent * 0.45)} / 45`}</strong></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('[Roux N Y UI] renderCoverage Exception:', err);
+  }
 }
 
 let selectedQIds = new Set();

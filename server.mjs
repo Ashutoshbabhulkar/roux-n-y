@@ -717,6 +717,13 @@ async function ensureStorage() {
 async function readData() {
   await ensureStorage();
   const data = JSON.parse(await readFile(dataFile, 'utf8'));
+  if (Array.isArray(data.sources)) {
+    data.sources.forEach(s => {
+      if (!s.title) {
+        s.title = s.filename ? s.filename.replace(/\.pdf$/i, '') : 'Surgical Textbook';
+      }
+    });
+  }
   if (Array.isArray(data.questions)) {
     data.questions.forEach(q => {
       if (!q.sourceTitle) {
