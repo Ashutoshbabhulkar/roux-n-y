@@ -495,7 +495,7 @@ async function body(req) {
 }
 
 async function api(req, res, url) {
-  if (req.method === 'GET' && url.pathname === '/api/dashboard') {
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/api/dashboard') {
     const data = await readData();
     return send(res, 200, {
       ...data,
@@ -503,7 +503,7 @@ async function api(req, res, url) {
     });
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/status') {
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/api/status') {
     return send(res, 200, {
       hasApiKey: !!process.env.GEMINI_API_KEY
     });
