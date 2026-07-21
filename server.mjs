@@ -109,63 +109,239 @@ async function updateSourceProgressDetails(sourceId, details) {
   }
 }
 
-async function callGeminiApiWithRetry(requestBody, apiKey, candidateModels, statusCallback) {
-  let lastErrorText = '';
-  for (const model of candidateModels) {
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      try {
-        if (statusCallback) statusCallback(`Calling Gemini AI (${model}, attempt ${attempt}/4)...`, model);
-        console.log(`[Roux N Y] Calling Gemini API (${model}, attempt ${attempt}/4)...`);
-        const res = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(180000), // 3-minute timeout
-          body: JSON.stringify(requestBody)
-        });
-        
-        if (res.ok) {
-          console.log(`[Roux N Y] Successfully received response from ${model}`);
-          return res;
-        } else if (res.status === 429) {
-          lastErrorText = `429 Rate Limited on ${model}`;
-          let waitMs = 15000;
-          try {
-            const errJson = await res.json();
-            const retryObj = errJson?.error?.details?.find(d => d['@type']?.includes('RetryInfo'));
-            if (retryObj && retryObj.retryDelay) {
-              const sec = parseFloat(retryObj.retryDelay.replace('s', ''));
-              if (!isNaN(sec)) {
-                waitMs = Math.ceil((sec + 3) * 1000);
-              }
-            }
-          } catch (_) {}
-          const waitSecStr = (waitMs / 1000).toFixed(0);
-          if (statusCallback) statusCallback(`Rate limit on ${model}. Waiting ${waitSecStr}s for quota reset...`, model);
-          console.warn(`[Roux N Y] Rate limited on ${model}. Waiting ${waitSecStr}s for RPM quota reset...`);
-          await new Promise(r => setTimeout(r, waitMs));
-        } else if (res.status === 503) {
-          lastErrorText = `503 High Demand on ${model}`;
-          if (statusCallback) statusCallback(`503 High demand on ${model}. Waiting 6s...`, model);
-          console.warn(`[Roux N Y] 503 High demand on ${model}. Waiting 6s...`);
-          await new Promise(r => setTimeout(r, 6000));
-        } else if (res.status === 404) {
-          lastErrorText = `404 Model Not Found (${model})`;
-          console.warn(`[Roux N Y] Model ${model} not found (404). Trying fallback...`);
-          break;
-        } else {
-          lastErrorText = await res.text();
-          console.warn(`[Roux N Y] Model ${model} failed (${res.status}): ${lastErrorText.slice(0, 150)}`);
-          break;
-        }
-      } catch (err) {
-        lastErrorText = err.message;
-        console.warn(`[Roux N Y] Fetch error on ${model} (attempt ${attempt}/4): ${err.message}`);
-        if (attempt < 4) await new Promise(r => setTimeout(r, 5000));
+async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, statusCallback) {
+  const geminiKeys = (process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+  const openrouterKeys = (process.env.OPENROUTER_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+  const groqKeys = (process.env.GROQ_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+
+  let lastError = 'No valid API keys configured.';
+
+  const geminiModels = [
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-1.5-pro'
+  ];
+
+  const openrouterModels = [
+    'google/gemini-2.0-flash-001',
+    'google/gemini-2.0-flash-lite:free',
+    'meta-llama/llama-3.3-70b-instruct:free'
+  ];
+
+  const groqModels = [
+    'llama-3.3-70b-versatile',
+    'mixtral-8x7b-32768'
+  ];
+
+  const geminiSchemaConfig = {
+    responseMimeType: 'application/json',
+    responseSchema: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          type: { "type": "STRING", "description": "Type of surgical MCQ: One Liner, Clinical Scenario, Image Based, Case Cluster, Assertion Reason, Best Next Step, Most Appropriate Management, Most Likely Diagnosis, Operative Decision Making" },
+          difficulty: { "type": "STRING", "description": "Difficulty: Moderate, Difficult, INI-SS, AIIMS MCh, Top 1%" },
+          book: { "type": "STRING", "description": "Book name, e.g. Bailey & Love" },
+          edition: { "type": "STRING", "description": "Edition name, e.g. 28th Edition" },
+          chapter: { "type": "STRING", "description": "Chapter name and number" },
+          topic: { "type": "STRING", "description": "Broad clinical topic" },
+          subtopic: { "type": "STRING", "description": "Specific clinical subtopic" },
+          page_number: { "type": "STRING", "description": "Direct page number from the PDF" },
+          figure_number: { "type": "STRING", "description": "Figure citation or N/A" },
+          table_number: { "type": "STRING", "description": "Table citation or N/A" },
+          question: { "type": "STRING", "description": "Strictly grounded MCQ question text" },
+          option_a: { "type": "STRING", "description": "Option A text" },
+          option_b: { "type": "STRING", "description": "Option B text" },
+          option_c: { "type": "STRING", "description": "Option C text" },
+          option_d: { "type": "STRING", "description": "Option D text" },
+          correct_option: { "type": "STRING", "description": "Single letter: A, B, C, or D" },
+          explanation: { "type": "STRING", "description": "Core pathophysiology explanation of the correct choice" },
+          why_a_wrong: { "type": "STRING", "description": "Why option A is wrong (or correct if it is the answer)" },
+          why_b_wrong: { "type": "STRING", "description": "Why option B is wrong (or correct if it is the answer)" },
+          why_c_wrong: { "type": "STRING", "description": "Why option C is wrong (or correct if it is the answer)" },
+          why_d_wrong: { "type": "STRING", "description": "Why option D is wrong (or correct if it is the answer)" },
+          clinical_pearl: { "type": "STRING", "description": "High yield takeaway pearl" },
+          exam_trap: { "type": "STRING", "description": "Common distractor trick alerts" },
+          memory_point: { "type": "STRING", "description": "Mnemonic or easy fact to remember" },
+          reference: { "type": "STRING", "description": "Exact citation reference (e.g. Bailey & Love, 28th Edition, Chapter 74, Page 1224)" }
+        },
+        required: [
+          "type", "difficulty", "book", "chapter", "topic", "question",
+          "option_a", "option_b", "option_c", "option_d", "correct_option",
+          "explanation", "why_a_wrong", "why_b_wrong", "why_c_wrong", "why_d_wrong",
+          "clinical_pearl", "exam_trap", "memory_point", "reference"
+        ]
       }
     }
+  };
+
+  // Run up to 2 passes across all configured keys & models
+  for (let pass = 1; pass <= 2; pass++) {
+    // 1. Direct Gemini API Keys
+    for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
+      const apiKey = geminiKeys[keyIdx];
+      for (const model of geminiModels) {
+        try {
+          const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
+          if (statusCallback) statusCallback(`Calling Gemini Direct (${model}${keyTag})...`, model);
+          console.log(`[Roux N Y] Calling Gemini Direct (${model}${keyTag})...`);
+          
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(120000),
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                  ]
+                }
+              ],
+              generationConfig: geminiSchemaConfig
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              console.log(`[Roux N Y] Successfully generated response with Gemini ${model}`);
+              return text;
+            }
+          } else if (res.status === 429) {
+            lastError = `429 Rate Limited on Direct ${model}`;
+            console.warn(`[Roux N Y] Rate limited on ${model}. Instantly switching to next candidate model...`);
+            if (statusCallback) statusCallback(`Rate limited on ${model}. Instantly trying next model...`, model);
+            // INSTANT FALLBACK: Do not sleep 60s, move immediately to next model
+            continue;
+          } else {
+            const errText = await res.text();
+            lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
+            console.warn(`[Roux N Y] ${lastError}`);
+            continue;
+          }
+        } catch (err) {
+          lastError = `Gemini fetch error on ${model}: ${err.message}`;
+          console.warn(`[Roux N Y] ${lastError}`);
+          continue;
+        }
+      }
+    }
+
+    // 2. OpenRouter API
+    for (const apiKey of openrouterKeys) {
+      for (const model of openrouterModels) {
+        try {
+          if (statusCallback) statusCallback(`Calling OpenRouter (${model.split('/')[1] || model})...`, model);
+          console.log(`[Roux N Y] Calling OpenRouter (${model})...`);
+          
+          const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'HTTP-Referer': 'https://roux-n-y.onrender.com',
+              'X-Title': 'Roux N Y',
+              'Content-Type': 'application/json'
+            },
+            signal: AbortSignal.timeout(120000),
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: prompt },
+                    {
+                      type: 'image_url',
+                      image_url: { url: `data:application/pdf;base64,${base64Pdf}` }
+                    }
+                  ]
+                }
+              ]
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.choices?.[0]?.message?.content;
+            if (text) {
+              console.log(`[Roux N Y] Successfully generated response via OpenRouter (${model})`);
+              return text;
+            }
+          } else {
+            const errText = await res.text();
+            lastError = `OpenRouter ${model} (${res.status}): ${errText.slice(0, 100)}`;
+            console.warn(`[Roux N Y] ${lastError}`);
+            continue;
+          }
+        } catch (err) {
+          lastError = `OpenRouter error on ${model}: ${err.message}`;
+          console.warn(`[Roux N Y] ${lastError}`);
+          continue;
+        }
+      }
+    }
+
+    // 3. Groq API
+    for (const apiKey of groqKeys) {
+      for (const model of groqModels) {
+        try {
+          if (statusCallback) statusCallback(`Calling Groq Ultra-Fast AI (${model})...`, model);
+          console.log(`[Roux N Y] Calling Groq API (${model})...`);
+          
+          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            signal: AbortSignal.timeout(120000),
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: 'user',
+                  content: prompt
+                }
+              ],
+              response_format: { type: 'json_object' }
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.choices?.[0]?.message?.content;
+            if (text) {
+              console.log(`[Roux N Y] Successfully generated response via Groq (${model})`);
+              return text;
+            }
+          } else {
+            const errText = await res.text();
+            lastError = `Groq ${model} (${res.status}): ${errText.slice(0, 100)}`;
+            console.warn(`[Roux N Y] ${lastError}`);
+            continue;
+          }
+        } catch (err) {
+          lastError = `Groq error on ${model}: ${err.message}`;
+          console.warn(`[Roux N Y] ${lastError}`);
+          continue;
+        }
+      }
+    }
+
+    if (pass === 1) {
+      if (statusCallback) statusCallback('Rate limits reached across models. Brief 6s pause before retrying...', 'rate-limit');
+      await new Promise(r => setTimeout(r, 6000));
+    }
   }
-  throw new Error(`Gemini API call failed across all fallback models. Last error: ${lastErrorText}`);
+
+  throw new Error(`All fallback AI providers and models failed. Last error: ${lastError}`);
 }
 
 async function runProcessingPipeline(sourceId) {
@@ -185,20 +361,10 @@ async function runProcessingPipeline(sourceId) {
     // Determine overall page range
     const { start: overallStart, end: overallEnd } = parsePageRange(source.pageRange, totalDocPages);
     
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not set. Please add it to your environment or .env file.');
+    const hasAnyKeys = !!process.env.GEMINI_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GROQ_API_KEY;
+    if (!hasAnyKeys) {
+      throw new Error('No API keys configured. Please add GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY.');
     }
-    
-    const candidateModels = [
-      'gemini-3.5-flash',
-      'gemini-2.0-flash',
-      'gemini-3.1-flash-lite',
-      'gemini-flash-lite-latest',
-      'gemini-2.0-flash-lite',
-      'gemini-flash-latest',
-      'gemini-pro-latest'
-    ];
     
     // Batch into chunks of 5 pages per chunk for ultra-fast processing & progress updates
     const CHUNK_SIZE = 5;
@@ -221,7 +387,7 @@ async function runProcessingPipeline(sourceId) {
       questionsGeneratedCount: 0,
       processedPages: 0,
       totalPages: totalSelectionPages,
-      activeModel: 'gemini-3.5-flash'
+      activeModel: 'multi-provider'
     });
     
     console.log(`[Roux N Y] Processing source ${source.filename} (${overallStart}-${overallEnd}) in ${chunks.length} chunk(s)...`);
@@ -231,9 +397,9 @@ async function runProcessingPipeline(sourceId) {
     for (let idx = 0; idx < chunks.length; idx++) {
       if (idx > 0) {
         await updateSourceProgressDetails(sourceId, {
-          statusMessage: `Pausing 6s between chunks to respect API rate limits...`
+          statusMessage: `Pausing 3s between chunks to optimize quota...`
         });
-        await new Promise(r => setTimeout(r, 6000));
+        await new Promise(r => setTimeout(r, 3000));
       }
       
       const chunk = chunks[idx];
@@ -264,71 +430,12 @@ CRITICAL RULES:
 3. Provide option justifications: For each option A, B, C, and D, write a clear, concise sentence explaining why it is correct or incorrect based on the text.
 4. Ensure the output strictly conforms to the JSON schema.`;
 
-      const requestBody = {
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: 'application/pdf',
-                  data: base64Pdf
-                }
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                type: { "type": "STRING", "description": "Type of surgical MCQ: One Liner, Clinical Scenario, Image Based, Case Cluster, Assertion Reason, Best Next Step, Most Appropriate Management, Most Likely Diagnosis, Operative Decision Making" },
-                difficulty: { "type": "STRING", "description": "Difficulty: Moderate, Difficult, INI-SS, AIIMS MCh, Top 1%" },
-                book: { "type": "STRING", "description": "Book name, e.g. Bailey & Love" },
-                edition: { "type": "STRING", "description": "Edition name, e.g. 28th Edition" },
-                chapter: { "type": "STRING", "description": "Chapter name and number" },
-                topic: { "type": "STRING", "description": "Broad clinical topic" },
-                subtopic: { "type": "STRING", "description": "Specific clinical subtopic" },
-                page_number: { "type": "STRING", "description": "Direct page number from the PDF" },
-                figure_number: { "type": "STRING", "description": "Figure citation or N/A" },
-                table_number: { "type": "STRING", "description": "Table citation or N/A" },
-                question: { "type": "STRING", "description": "Strictly grounded MCQ question text" },
-                option_a: { "type": "STRING", "description": "Option A text" },
-                option_b: { "type": "STRING", "description": "Option B text" },
-                option_c: { "type": "STRING", "description": "Option C text" },
-                option_d: { "type": "STRING", "description": "Option D text" },
-                correct_option: { "type": "STRING", "description": "Single letter: A, B, C, or D" },
-                explanation: { "type": "STRING", "description": "Core pathophysiology explanation of the correct choice" },
-                why_a_wrong: { "type": "STRING", "description": "Why option A is wrong (or correct if it is the answer)" },
-                why_b_wrong: { "type": "STRING", "description": "Why option B is wrong (or correct if it is the answer)" },
-                why_c_wrong: { "type": "STRING", "description": "Why option C is wrong (or correct if it is the answer)" },
-                why_d_wrong: { "type": "STRING", "description": "Why option D is wrong (or correct if it is the answer)" },
-                clinical_pearl: { "type": "STRING", "description": "High yield takeaway pearl" },
-                exam_trap: { "type": "STRING", "description": "Common distractor trick alerts" },
-                memory_point: { "type": "STRING", "description": "Mnemonic or easy fact to remember" },
-                reference: { "type": "STRING", "description": "Exact citation reference (e.g. Bailey & Love, 28th Edition, Chapter 74, Page 1224)" }
-              },
-              required: [
-                "type", "difficulty", "book", "chapter", "topic", "question",
-                "option_a", "option_b", "option_c", "option_d", "correct_option",
-                "explanation", "why_a_wrong", "why_b_wrong", "why_c_wrong", "why_d_wrong",
-                "clinical_pearl", "exam_trap", "memory_point", "reference"
-              ]
-            }
-          }
-        }
-      };
-      
-      let response;
+      let candidateText;
       for (let chunkAttempt = 1; chunkAttempt <= 3; chunkAttempt++) {
         try {
-          response = await callGeminiApiWithRetry(
-            requestBody,
-            apiKey,
-            candidateModels,
+          candidateText = await callMultiProviderApiWithInstantFallback(
+            prompt,
+            base64Pdf,
             (msg, model) => {
               updateSourceProgressDetails(sourceId, {
                 statusMessage: `[Chunk ${idx + 1}/${chunks.length} - p.${chunk.start}–${chunk.end}] ${msg}`,
@@ -341,16 +448,14 @@ CRITICAL RULES:
           console.warn(`[Roux N Y] Chunk ${idx + 1}/${chunks.length} attempt ${chunkAttempt} failed: ${chunkErr.message}`);
           if (chunkAttempt < 3) {
             await updateSourceProgressDetails(sourceId, {
-              statusMessage: `Chunk ${idx + 1}/${chunks.length} attempt ${chunkAttempt} failed. Pausing 15s before retrying chunk...`
+              statusMessage: `Chunk ${idx + 1}/${chunks.length} attempt ${chunkAttempt} failed. Retrying...`
             });
-            await new Promise(r => setTimeout(r, 15000));
+            await new Promise(r => setTimeout(r, 5000));
           } else {
             throw chunkErr;
           }
         }
       }
-      const resultJson = await response.json();
-      const candidateText = resultJson.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (candidateText) {
         let cleanText = candidateText.trim();
@@ -359,6 +464,8 @@ CRITICAL RULES:
           const parsed = JSON.parse(cleanText);
           if (Array.isArray(parsed)) {
             allGeneratedQuestions.push(...parsed);
+          } else if (parsed && Array.isArray(parsed.questions)) {
+            allGeneratedQuestions.push(...parsed.questions);
           }
         } catch (parseErr) {
           console.warn(`[Roux N Y] Failed to parse JSON chunk ${idx + 1}: ${parseErr.message}`);
