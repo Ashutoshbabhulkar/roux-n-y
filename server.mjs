@@ -6,6 +6,31 @@ import { createHash, randomUUID } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PDFDocument } from 'pdf-lib';
+import pdfParse from 'pdf-parse';
+
+const apiProviderStatus = {
+  gemini: {
+    name: 'Gemini Direct (Google AI)',
+    status: 'active',
+    error: null,
+    quotaResetAt: null,
+    lastUsedAt: null
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    status: (process.env.OPENROUTER_API_KEY || '').trim() ? 'active' : 'unconfigured',
+    error: (process.env.OPENROUTER_API_KEY || '').trim() ? null : '401 Key Unconfigured in Render',
+    quotaResetAt: null,
+    lastUsedAt: null
+  },
+  groq: {
+    name: 'Groq Ultra-Fast (Llama 3.3 70B)',
+    status: (process.env.GROQ_API_KEY || '').trim() ? 'active' : 'unconfigured',
+    error: (process.env.GROQ_API_KEY || '').trim() ? null : 'Key Unconfigured',
+    quotaResetAt: null,
+    lastUsedAt: null
+  }
+};
 
 const projectRoot = resolve(fileURLToPath(new URL('.', import.meta.url)));
 
@@ -165,7 +190,7 @@ async function fetchWithHardTimeout(url, options, timeoutMs = 15000) {
   }
 }
 
-async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, statusCallback) {
+async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extractedText, statusCallback) {
   const geminiKeys = (process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
   const openrouterKeys = (process.env.OPENROUTER_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
   const groqKeys = (process.env.GROQ_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
@@ -234,57 +259,70 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
     }
   };
 
+  const fullPromptForTextModel = extractedText && extractedText.length > 50
+    ? `${prompt}\n\n--- EXACT EXTRACTED TEXTBOOK CHAPTER PAGES FOR GROUNDING ---\n${extractedText.slice(0, 16000)}\n--- END TEXTBOOK CONTENT ---`
+    : prompt;
+
   // Run up to 2 passes across all configured keys & models
   for (let pass = 1; pass <= 2; pass++) {
-    // 1. Direct Gemini API Keys
-    for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
-      const apiKey = geminiKeys[keyIdx];
-      for (const model of geminiModels) {
-        try {
-          const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
-          if (statusCallback) statusCallback(`Calling Gemini Direct (${model}${keyTag})...`, model);
-          logSys('info', `Calling Gemini Direct (${model}${keyTag})...`);
-          
-          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-          const res = await fetchWithHardTimeout(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    { text: prompt },
-                    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
-                  ]
-                }
-              ],
-              generationConfig: geminiSchemaConfig
-            })
-          }, 15000);
-
-          if (res.ok) {
-            const data = await res.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-              logSys('info', `Successfully generated response with Gemini ${model}`);
-              return text;
-            }
-          } else {
-            const errText = await res.text();
-            lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
-            logSys('warn', lastError);
+    // 1. Direct Gemini API Keys (Only if not rate limited or if reset timer passed)
+    const now = Date.now();
+    if (!apiProviderStatus.gemini.quotaResetAt || now >= apiProviderStatus.gemini.quotaResetAt) {
+      for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
+        const apiKey = geminiKeys[keyIdx];
+        for (const model of geminiModels) {
+          try {
+            const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
+            if (statusCallback) statusCallback(`Calling Gemini Direct (${model}${keyTag})...`, model);
+            logSys('info', `Calling Gemini Direct (${model}${keyTag})...`);
             
-            if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
-              logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
-              if (statusCallback) statusCallback(`Quota/Billing limit on Gemini. Switching to OpenRouter/Groq...`, model);
-              break; // Jump to OpenRouter immediately
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            const res = await fetchWithHardTimeout(apiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      { text: prompt },
+                      { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                    ]
+                  }
+                ],
+                generationConfig: geminiSchemaConfig
+              })
+            }, 15000);
+
+            if (res.ok) {
+              const data = await res.json();
+              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                apiProviderStatus.gemini.status = 'active';
+                apiProviderStatus.gemini.error = null;
+                apiProviderStatus.gemini.quotaResetAt = null;
+                logSys('info', `Successfully generated response with Gemini ${model}`);
+                return text;
+              }
+            } else {
+              const errText = await res.text();
+              lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
+              logSys('warn', lastError);
+              
+              if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
+                apiProviderStatus.gemini.status = 'rate_limited';
+                apiProviderStatus.gemini.error = `429 Quota Exceeded (${model})`;
+                apiProviderStatus.gemini.quotaResetAt = Date.now() + 60000; // 60s countdown
+                logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
+                if (statusCallback) statusCallback(`Quota/Billing limit on Gemini (429). Switching to Groq...`, model);
+                break; // Jump to next provider immediately
+              }
+              continue;
             }
+          } catch (err) {
+            lastError = `Gemini fetch error on ${model}: ${err.message}`;
+            logSys('warn', lastError);
             continue;
           }
-        } catch (err) {
-          lastError = `Gemini fetch error on ${model}: ${err.message}`;
-          logSys('warn', lastError);
-          continue;
         }
       }
     }
@@ -309,13 +347,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               messages: [
                 {
                   role: 'user',
-                  content: [
-                    { type: 'text', text: prompt },
-                    {
-                      type: 'image_url',
-                      image_url: { url: `data:application/pdf;base64,${base64Pdf}` }
-                    }
-                  ]
+                  content: fullPromptForTextModel
                 }
               ]
             })
@@ -325,6 +357,8 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const data = await res.json();
             const text = data.choices?.[0]?.message?.content;
             if (text) {
+              apiProviderStatus.openrouter.status = 'active';
+              apiProviderStatus.openrouter.error = null;
               logSys('info', `Successfully generated response via OpenRouter (${model})`);
               return text;
             }
@@ -332,6 +366,10 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const errText = await res.text();
             lastError = `OpenRouter ${model} (${res.status}): ${errText.slice(0, 100)}`;
             logSys('warn', lastError);
+            if (res.status === 401) {
+              apiProviderStatus.openrouter.status = 'unconfigured';
+              apiProviderStatus.openrouter.error = '401 Invalid Key';
+            }
             if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('credit') || errText.toLowerCase().includes('balance') || errText.toLowerCase().includes('quota')) {
               logSys('warn', `Payment/Quota error on OpenRouter (${res.status}). Instantly switching provider...`);
               if (statusCallback) statusCallback(`Quota/Billing limit on OpenRouter. Switching to Groq...`, model);
@@ -365,7 +403,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               messages: [
                 {
                   role: 'user',
-                  content: prompt
+                  content: fullPromptForTextModel
                 }
               ],
               response_format: { type: 'json_object' }
@@ -376,6 +414,8 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             const data = await res.json();
             const text = data.choices?.[0]?.message?.content;
             if (text) {
+              apiProviderStatus.groq.status = 'active';
+              apiProviderStatus.groq.error = null;
               logSys('info', `Successfully generated response via Groq (${model})`);
               return text;
             }
@@ -480,18 +520,32 @@ async function runProcessingPipeline(sourceId) {
       });
       
       const sliceResult = await slicePdf(fileBytes, `${chunk.start}-${chunk.end}`);
-      const base64Pdf = Buffer.from(sliceResult.bytes).toString('base64');
+      const sliceBuffer = Buffer.from(sliceResult.bytes);
+      const base64Pdf = sliceBuffer.toString('base64');
+      
+      let extractedText = '';
+      try {
+        const parsedPdf = await pdfParse(sliceBuffer);
+        extractedText = (parsedPdf && parsedPdf.text) ? parsedPdf.text.trim() : '';
+      } catch (e) {
+        console.warn(`[Roux N Y] PDF text extraction notice: ${e.message}`);
+      }
+
       const chunkPageCount = (chunk.end - chunk.start + 1);
       const targetMcqCount = Math.max(4, chunkPageCount * 4);
       
       const prompt = `You are an elite surgical education question setter for NEET-SS / INI-SS examinations.
-Your objective is to generate at least ${targetMcqCount} publication-ready multiple choice questions (MCQs) (generating approximately 4 to 5 distinct, high-yield questions per page) strictly grounded in the attached PDF page slice.
+Your objective is to generate exactly ${targetMcqCount} publication-ready multiple choice questions (MCQs) (approximately 4 to 5 distinct, high-yield questions per page) strictly grounded in the surgical textbook content provided.
 
-CRITICAL RULES:
-1. Grounding: You must construct questions, choices, and explanations strictly based on facts, clinical guidance, tables, or figures explicitly mentioned in the PDF. Do not invent any facts, data, or references.
-2. If there are tables or figures in the PDF slice, try to base questions on them, citing the correct table_number or figure_number.
-3. Provide option justifications: For each option A, B, C, and D, write a clear, concise sentence explaining why it is correct or incorrect based on the text.
-4. Ensure the output strictly conforms to the JSON schema.`;
+CRITICAL QUALITY RULES:
+1. ABSOLUTELY NO GENERIC PLACEHOLDERS: Do NOT use generic terms like "Condition X", "Table 1", "Grounded in surgical text", "Option A unavailable", "Treatment Y". You MUST use actual disease names, surgical procedures, anatomical terms, and clinical facts explicitly found in the text.
+2. ABSOLUTE GROUNDING: Every question, option, explanation, and clinical pearl MUST be directly derived from the textbook content.
+3. OPTIONS: Provide 4 distinct, meaningful options (option_a, option_b, option_c, option_d) containing actual surgical procedures, diagnostic criteria, or anatomical choices.
+4. EXPLANATION & CLINICAL PEARL:
+   - "explanation": Provide a comprehensive 2-3 sentence pathophysiology and clinical rationale explaining why the correct choice is right and others are wrong.
+   - "clinical_pearl": Provide a high-yield, exam-focused takeaway summarizing key surgical guidelines or diagnostic rules from the text.
+   - "reference": Cite exact book, chapter, and page/figure numbers (e.g. "Bailey & Love, 28th Edition, Chapter 6, p. ${chunk.start}").
+5. Conform strictly to JSON schema format.`;
 
       let candidateText;
       for (let chunkAttempt = 1; chunkAttempt <= 3; chunkAttempt++) {
@@ -499,6 +553,7 @@ CRITICAL RULES:
           candidateText = await callMultiProviderApiWithInstantFallback(
             prompt,
             base64Pdf,
+            extractedText,
             (msg, model) => {
               updateSourceProgressDetails(sourceId, {
                 statusMessage: `[Chunk ${idx + 1}/${chunks.length} - p.${chunk.start}–${chunk.end}] ${msg}`,
@@ -855,6 +910,27 @@ async function api(req, res, url) {
     return send(res, 200, {
       hasApiKey: !!process.env.GEMINI_API_KEY
     });
+  }
+
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/api/provider-status') {
+    const now = Date.now();
+    if (apiProviderStatus.gemini.quotaResetAt && now >= apiProviderStatus.gemini.quotaResetAt) {
+      apiProviderStatus.gemini.status = 'active';
+      apiProviderStatus.gemini.error = null;
+      apiProviderStatus.gemini.quotaResetAt = null;
+    }
+    return send(res, 200, {
+      providers: apiProviderStatus,
+      activeProvider: apiProviderStatus.gemini.status === 'active' ? 'Gemini 2.0 Direct' : 'Groq Llama 3.3 (Fallback)'
+    });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/reset-provider-quota') {
+    apiProviderStatus.gemini.status = 'active';
+    apiProviderStatus.gemini.error = null;
+    apiProviderStatus.gemini.quotaResetAt = null;
+    logSys('info', 'Manual reset triggered for Gemini API Quota flag.');
+    return send(res, 200, { success: true, message: 'Gemini Quota reset.' });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/sources') {

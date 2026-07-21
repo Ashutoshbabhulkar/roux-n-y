@@ -1482,3 +1482,84 @@ if ($('#btn-regen-submit')) {
 
 loadDashboard();
 checkApiStatus();
+
+async function updateApiProviderStatusUI() {
+  try {
+    const res = await fetch('/api/provider-status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const providers = data.providers;
+    
+    // 1. Gemini status
+    const geminiLabel = $('#label-gemini');
+    const geminiDot = $('#dot-gemini');
+    if (geminiLabel && geminiDot) {
+      if (providers.gemini.status === 'rate_limited') {
+        const resetAt = providers.gemini.quotaResetAt;
+        const remainingSec = Math.max(0, Math.ceil((resetAt - Date.now()) / 1000));
+        const m = Math.floor(remainingSec / 60);
+        const s = remainingSec % 60;
+        const timerStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        
+        geminiLabel.textContent = `⏳ Quota 429 Limit (Reset in ${timerStr})`;
+        geminiLabel.style.color = '#fbbf24';
+        geminiDot.style.background = '#fbbf24';
+      } else if (providers.gemini.status === 'active') {
+        geminiLabel.textContent = 'Active & Ready (Primary)';
+        geminiLabel.style.color = '#34d399';
+        geminiDot.style.background = '#34d399';
+      } else {
+        geminiLabel.textContent = providers.gemini.error || 'Offline';
+        geminiLabel.style.color = '#f87171';
+        geminiDot.style.background = '#f87171';
+      }
+    }
+    
+    // 2. Groq status
+    const groqLabel = $('#label-groq');
+    const groqDot = $('#dot-groq');
+    if (groqLabel && groqDot) {
+      if (providers.groq.status === 'active') {
+        groqLabel.textContent = 'Active & Grounded';
+        groqLabel.style.color = '#34d399';
+        groqDot.style.background = '#34d399';
+      } else {
+        groqLabel.textContent = providers.groq.error || 'Unconfigured';
+        groqLabel.style.color = '#f87171';
+        groqDot.style.background = '#f87171';
+      }
+    }
+
+    // 3. OpenRouter status
+    const openrouterLabel = $('#label-openrouter');
+    const openrouterDot = $('#dot-openrouter');
+    if (openrouterLabel && openrouterDot) {
+      if (providers.openrouter.status === 'active') {
+        openrouterLabel.textContent = 'Active';
+        openrouterLabel.style.color = '#34d399';
+        openrouterDot.style.background = '#34d399';
+      } else {
+        openrouterLabel.textContent = '401 Key Unconfigured';
+        openrouterLabel.style.color = '#f87171';
+        openrouterDot.style.background = '#f87171';
+      }
+    }
+  } catch (e) {}
+}
+
+const btnResetGemini = $('#btn-reset-gemini-quota');
+if (btnResetGemini) {
+  btnResetGemini.onclick = async () => {
+    btnResetGemini.textContent = 'Testing Gemini...';
+    try {
+      await fetch('/api/reset-provider-quota', { method: 'POST' });
+      await updateApiProviderStatusUI();
+      btnResetGemini.textContent = '⚡ Test / Retry Gemini Now';
+    } catch (e) {
+      btnResetGemini.textContent = '⚡ Test / Retry Gemini Now';
+    }
+  };
+}
+
+setInterval(updateApiProviderStatusUI, 1000);
+updateApiProviderStatusUI();
