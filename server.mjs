@@ -553,16 +553,18 @@ CRITICAL RULES:
     const finalSource = finalData.sources.find(s => s.id === sourceId);
     if (!finalSource) return;
     
-    const newQuestions = allGeneratedQuestions.map(q => ({
-      ...q,
-      correct_option: (q.correct_option || 'A').toUpperCase(),
-      id: `Q-${Math.floor(2000 + Math.random() * 7000)}`,
-      sourceId: finalSource.id,
-      sourceTitle: finalSource.title || finalSource.filename,
-      sourceFilename: finalSource.filename,
-      status: 'review',
-      createdAt: new Date().toISOString()
-    }));
+    const newQuestions = allGeneratedQuestions.map(rawQ => {
+      const q = normalizeQuestion(rawQ);
+      return {
+        ...q,
+        id: `Q-${Math.floor(2000 + Math.random() * 7000)}`,
+        sourceId: finalSource.id,
+        sourceTitle: finalSource.title || finalSource.filename,
+        sourceFilename: finalSource.filename,
+        status: 'review',
+        createdAt: new Date().toISOString()
+      };
+    });
     
     finalData.questions.unshift(...newQuestions);
     
@@ -723,6 +725,56 @@ async function ensureStorage() {
   }
 }
 
+function normalizeQuestion(q) {
+  if (!q || typeof q !== 'object') return q;
+
+  const nq = { ...q };
+
+  let optA = nq.option_a || nq.optionA || nq.options_a || nq.a;
+  let optB = nq.option_b || nq.optionB || nq.options_b || nq.b;
+  let optC = nq.option_c || nq.optionC || nq.options_c || nq.c;
+  let optD = nq.option_d || nq.optionD || nq.options_d || nq.d;
+
+  if (nq.options) {
+    if (typeof nq.options === 'object' && !Array.isArray(nq.options)) {
+      optA = optA || nq.options.A || nq.options.a || nq.options['1'] || nq.options['option_a'] || nq.options['optionA'];
+      optB = optB || nq.options.B || nq.options.b || nq.options['2'] || nq.options['option_b'] || nq.options['optionB'];
+      optC = optC || nq.options.C || nq.options.c || nq.options['3'] || nq.options['option_c'] || nq.options['optionC'];
+      optD = optD || nq.options.D || nq.options.d || nq.options['4'] || nq.options['option_d'] || nq.options['optionD'];
+    } else if (Array.isArray(nq.options)) {
+      optA = optA || nq.options[0];
+      optB = optB || nq.options[1];
+      optC = optC || nq.options[2];
+      optD = optD || nq.options[3];
+    }
+  }
+
+  nq.option_a = optA ? String(optA).trim() : 'Option A unavailable';
+  nq.option_b = optB ? String(optB).trim() : 'Option B unavailable';
+  nq.option_c = optC ? String(optC).trim() : 'Option C unavailable';
+  nq.option_d = optD ? String(optD).trim() : 'Option D unavailable';
+
+  let rawCorrect = nq.correct_option || nq.correctOption || nq.answer || nq.correctAnswer || nq.correct || 'A';
+  rawCorrect = String(rawCorrect).trim().toUpperCase();
+  if (rawCorrect.includes('A')) nq.correct_option = 'A';
+  else if (rawCorrect.includes('B')) nq.correct_option = 'B';
+  else if (rawCorrect.includes('C')) nq.correct_option = 'C';
+  else if (rawCorrect.includes('D')) nq.correct_option = 'D';
+  else nq.correct_option = 'A';
+
+  nq.type = nq.type || nq.mcqType || 'Clinical Scenario';
+  nq.difficulty = nq.difficulty || 'INI-SS';
+  nq.book = nq.book || nq.sourceBook || 'Bailey & Love';
+  nq.chapter = nq.chapter || nq.chapter_name || nq.chapterName || 'General Surgery';
+  nq.topic = nq.topic || nq.subject || nq.category || 'Surgical Management';
+  nq.subtopic = nq.subtopic || nq.sub_topic || nq.subTopic || 'Clinical Pearls';
+  nq.explanation = nq.explanation || nq.rationale || nq.answer_explanation || nq.why_correct || 'Grounded in surgical text.';
+  nq.clinical_pearl = nq.clinical_pearl || nq.clinicalPearl || nq.pearl || nq.takeaway || nq.explanation;
+  nq.reference = nq.reference || nq.citation || `${nq.book}, ${nq.chapter}, p. ${nq.page_number || 'N/A'}`;
+
+  return nq;
+}
+
 async function readData() {
   await ensureStorage();
   const data = JSON.parse(await readFile(dataFile, 'utf8'));
@@ -734,10 +786,12 @@ async function readData() {
     });
   }
   if (Array.isArray(data.questions)) {
-    data.questions.forEach(q => {
-      if (!q.sourceTitle) {
-        q.sourceTitle = q.book || 'Surgical Textbook';
+    data.questions = data.questions.map(q => {
+      const nq = normalizeQuestion(q);
+      if (!nq.sourceTitle) {
+        nq.sourceTitle = nq.book || 'Surgical Textbook';
       }
+      return nq;
     });
   }
   return data;

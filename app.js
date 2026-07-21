@@ -114,6 +114,56 @@ function escapeHtml(value) {
   return node.innerHTML;
 }
 
+function normalizeQuestion(q) {
+  if (!q || typeof q !== 'object') return q;
+
+  const nq = { ...q };
+
+  let optA = nq.option_a || nq.optionA || nq.options_a || nq.a;
+  let optB = nq.option_b || nq.optionB || nq.options_b || nq.b;
+  let optC = nq.option_c || nq.optionC || nq.options_c || nq.c;
+  let optD = nq.option_d || nq.optionD || nq.options_d || nq.d;
+
+  if (nq.options) {
+    if (typeof nq.options === 'object' && !Array.isArray(nq.options)) {
+      optA = optA || nq.options.A || nq.options.a || nq.options['1'] || nq.options['option_a'] || nq.options['optionA'];
+      optB = optB || nq.options.B || nq.options.b || nq.options['2'] || nq.options['option_b'] || nq.options['optionB'];
+      optC = optC || nq.options.C || nq.options.c || nq.options['3'] || nq.options['option_c'] || nq.options['optionC'];
+      optD = optD || nq.options.D || nq.options.d || nq.options['4'] || nq.options['option_d'] || nq.options['optionD'];
+    } else if (Array.isArray(nq.options)) {
+      optA = optA || nq.options[0];
+      optB = optB || nq.options[1];
+      optC = optC || nq.options[2];
+      optD = optD || nq.options[3];
+    }
+  }
+
+  nq.option_a = optA ? String(optA).trim() : 'Option A unavailable';
+  nq.option_b = optB ? String(optB).trim() : 'Option B unavailable';
+  nq.option_c = optC ? String(optC).trim() : 'Option C unavailable';
+  nq.option_d = optD ? String(optD).trim() : 'Option D unavailable';
+
+  let rawCorrect = nq.correct_option || nq.correctOption || nq.answer || nq.correctAnswer || nq.correct || 'A';
+  rawCorrect = String(rawCorrect).trim().toUpperCase();
+  if (rawCorrect.includes('A')) nq.correct_option = 'A';
+  else if (rawCorrect.includes('B')) nq.correct_option = 'B';
+  else if (rawCorrect.includes('C')) nq.correct_option = 'C';
+  else if (rawCorrect.includes('D')) nq.correct_option = 'D';
+  else nq.correct_option = 'A';
+
+  nq.type = nq.type || nq.mcqType || 'Clinical Scenario';
+  nq.difficulty = nq.difficulty || 'INI-SS';
+  nq.book = nq.book || nq.sourceBook || 'Bailey & Love';
+  nq.chapter = nq.chapter || nq.chapter_name || nq.chapterName || 'General Surgery';
+  nq.topic = nq.topic || nq.subject || nq.category || 'Surgical Management';
+  nq.subtopic = nq.subtopic || nq.sub_topic || nq.subTopic || 'Clinical Pearls';
+  nq.explanation = nq.explanation || nq.rationale || nq.answer_explanation || nq.why_correct || 'Grounded in surgical text.';
+  nq.clinical_pearl = nq.clinical_pearl || nq.clinicalPearl || nq.pearl || nq.takeaway || nq.explanation;
+  nq.reference = nq.reference || nq.citation || `${nq.book}, ${nq.chapter}, p. ${nq.page_number || 'N/A'}`;
+
+  return nq;
+}
+
 function statusLabel(status) {
   return status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'In review';
 }
@@ -804,25 +854,31 @@ function openCompletionModal(source, questions) {
   titleElem.textContent = `${generatedList.length} MCQs Generated`;
   subtitleElem.textContent = `Generated from "${source.title}" (${source.filename}). High-yield publication ready surgical questions.`;
 
-  listContainer.innerHTML = generatedList.map((q, idx) => {
+  listContainer.innerHTML = generatedList.map((rawQ, idx) => {
+    const q = normalizeQuestion(rawQ);
     const badge = getBadgeClass(q.type);
-    return `<div class="completion-card" id="comp-card-${q.id}">
-      <div class="completion-card-head">
-        <span class="completion-card-num">Question ${idx + 1} (${q.id})</span>
+    return `<div class="completion-card" id="comp-card-${q.id}" style="margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: white;">
+      <div class="completion-card-head" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+        <div>
+          <span class="completion-card-num" style="font-weight: 700;">Question ${idx + 1} (${q.id})</span>
+          <small style="display: block; color: var(--muted); font-size: 11px;">📖 ${escapeHtml(q.chapter || 'Chapter')} · 🏷️ ${escapeHtml(q.topic || 'Topic')}</small>
+        </div>
         <div style="display: flex; gap: 8px; align-items: center;">
           <span class="badge ${badge}">${escapeHtml(q.type)}</span>
-          <button class="edit-completion-q" data-q-id="${q.id}" style="background: #e6f0fa; color: #1e6091; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 11px; font-weight: bold;">✏️ Edit</button>
-          <button class="delete-completion-q" data-q-id="${q.id}" style="background: #fde6e1; color: #d85b48; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 11px; font-weight: bold;">🗑 Delete</button>
+          <button class="edit-completion-q" data-q-id="${q.id}" style="background: #e6f0fa; color: #1e6091; border: none; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 11px; font-weight: bold;">✏️ Edit</button>
+          <button class="delete-completion-q" data-q-id="${q.id}" style="background: #fde6e1; color: #d85b48; border: none; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 11px; font-weight: bold;">🗑 Delete</button>
         </div>
       </div>
-      <div class="completion-qtext">${escapeHtml(q.question)}</div>
-      <div class="completion-options">
-        <div class="completion-opt ${q.correct_option === 'A' ? 'correct' : ''}">A. ${escapeHtml(q.option_a)}</div>
-        <div class="completion-opt ${q.correct_option === 'B' ? 'correct' : ''}">B. ${escapeHtml(q.option_b)}</div>
-        <div class="completion-opt ${q.correct_option === 'C' ? 'correct' : ''}">C. ${escapeHtml(q.option_c)}</div>
-        <div class="completion-opt ${q.correct_option === 'D' ? 'correct' : ''}">D. ${escapeHtml(q.option_d)}</div>
+      <div class="completion-qtext" style="font-weight: 600; margin-bottom: 12px; font-size: 14px;">${escapeHtml(q.question)}</div>
+      <div class="completion-options" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+        <div class="completion-opt ${q.correct_option === 'A' ? 'correct' : ''}" style="padding: 8px; border-radius: 4px; background: ${q.correct_option === 'A' ? '#e6f3ed' : '#f9f9f9'}; font-size: 12px;"><strong>A.</strong> ${escapeHtml(q.option_a)}</div>
+        <div class="completion-opt ${q.correct_option === 'B' ? 'correct' : ''}" style="padding: 8px; border-radius: 4px; background: ${q.correct_option === 'B' ? '#e6f3ed' : '#f9f9f9'}; font-size: 12px;"><strong>B.</strong> ${escapeHtml(q.option_b)}</div>
+        <div class="completion-opt ${q.correct_option === 'C' ? 'correct' : ''}" style="padding: 8px; border-radius: 4px; background: ${q.correct_option === 'C' ? '#e6f3ed' : '#f9f9f9'}; font-size: 12px;"><strong>C.</strong> ${escapeHtml(q.option_c)}</div>
+        <div class="completion-opt ${q.correct_option === 'D' ? 'correct' : ''}" style="padding: 8px; border-radius: 4px; background: ${q.correct_option === 'D' ? '#e6f3ed' : '#f9f9f9'}; font-size: 12px;"><strong>D.</strong> ${escapeHtml(q.option_d)}</div>
       </div>
-      ${q.clinical_pearl ? `<div class="completion-pearl"><strong>Clinical Pearl:</strong> ${escapeHtml(q.clinical_pearl)}</div>` : ''}
+      ${q.explanation ? `<div style="font-size: 11px; color: #333; margin-top: 6px; background: #f4f8f6; padding: 6px 10px; border-radius: 4px;"><strong>Pathophysiology / Explanation:</strong> ${escapeHtml(q.explanation)}</div>` : ''}
+      ${q.clinical_pearl ? `<div class="completion-pearl" style="font-size: 11px; color: #1f8255; margin-top: 4px;"><strong>Clinical Pearl:</strong> ${escapeHtml(q.clinical_pearl)}</div>` : ''}
+      ${q.reference ? `<div style="font-size: 10px; color: var(--muted); margin-top: 4px;"><strong>Reference:</strong> ${escapeHtml(q.reference)}</div>` : ''}
     </div>`;
   }).join('');
 
@@ -1103,7 +1159,7 @@ async function loadDashboard() {
     if (!response.ok) throw new Error();
     const data = await response.json();
     
-    globalQuestions = data.questions || [];
+    globalQuestions = (data.questions || []).map(q => normalizeQuestion(q));
     globalSources = data.sources || [];
 
     // Client-side Auto-Backup & Auto-Restore check
