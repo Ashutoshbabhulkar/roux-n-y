@@ -114,36 +114,59 @@ function escapeHtml(value) {
   return node.innerHTML;
 }
 
+function extractOptionText(val) {
+  if (val === undefined || val === null) return '';
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (s === '[object Object]') return '';
+    return s;
+  }
+  if (typeof val === 'number') return String(val).trim();
+  if (typeof val === 'object') {
+    if (val.text) return extractOptionText(val.text);
+    if (val.content) return extractOptionText(val.content);
+    if (val.value) return extractOptionText(val.value);
+    if (val.option) return extractOptionText(val.option);
+    if (val.label) return extractOptionText(val.label);
+    if (val.desc || val.description) return extractOptionText(val.desc || val.description);
+    try {
+      const strProp = Object.values(val).find(v => typeof v === 'string' && v.trim() !== '[object Object]');
+      if (strProp) return strProp.trim();
+    } catch (e) {}
+  }
+  return '';
+}
+
 function normalizeQuestion(q) {
   if (!q || typeof q !== 'object') return q;
 
   const nq = { ...q };
 
-  let optA = nq.option_a || nq.optionA || nq.options_a || nq.a;
-  let optB = nq.option_b || nq.optionB || nq.options_b || nq.b;
-  let optC = nq.option_c || nq.optionC || nq.options_c || nq.c;
-  let optD = nq.option_d || nq.optionD || nq.options_d || nq.d;
+  let optA = extractOptionText(nq.option_a || nq.optionA || nq.options_a || nq.a);
+  let optB = extractOptionText(nq.option_b || nq.optionB || nq.options_b || nq.b);
+  let optC = extractOptionText(nq.option_c || nq.optionC || nq.options_c || nq.c);
+  let optD = extractOptionText(nq.option_d || nq.optionD || nq.options_d || nq.d);
 
-  if (nq.options) {
+  if ((!optA || !optB || !optC || !optD) && nq.options) {
     if (typeof nq.options === 'object' && !Array.isArray(nq.options)) {
-      optA = optA || nq.options.A || nq.options.a || nq.options['1'] || nq.options['option_a'] || nq.options['optionA'];
-      optB = optB || nq.options.B || nq.options.b || nq.options['2'] || nq.options['option_b'] || nq.options['optionB'];
-      optC = optC || nq.options.C || nq.options.c || nq.options['3'] || nq.options['option_c'] || nq.options['optionC'];
-      optD = optD || nq.options.D || nq.options.d || nq.options['4'] || nq.options['option_d'] || nq.options['optionD'];
+      optA = optA || extractOptionText(nq.options.A || nq.options.a || nq.options['1'] || nq.options['option_a'] || nq.options['optionA']);
+      optB = optB || extractOptionText(nq.options.B || nq.options.b || nq.options['2'] || nq.options['option_b'] || nq.options['optionB']);
+      optC = optC || extractOptionText(nq.options.C || nq.options.c || nq.options['3'] || nq.options['option_c'] || nq.options['optionC']);
+      optD = optD || extractOptionText(nq.options.D || nq.options.d || nq.options['4'] || nq.options['option_d'] || nq.options['optionD']);
     } else if (Array.isArray(nq.options)) {
-      optA = optA || nq.options[0];
-      optB = optB || nq.options[1];
-      optC = optC || nq.options[2];
-      optD = optD || nq.options[3];
+      optA = optA || extractOptionText(nq.options[0]);
+      optB = optB || extractOptionText(nq.options[1]);
+      optC = optC || extractOptionText(nq.options[2]);
+      optD = optD || extractOptionText(nq.options[3]);
     }
   }
 
-  nq.option_a = optA ? String(optA).trim() : 'Option A unavailable';
-  nq.option_b = optB ? String(optB).trim() : 'Option B unavailable';
-  nq.option_c = optC ? String(optC).trim() : 'Option C unavailable';
-  nq.option_d = optD ? String(optD).trim() : 'Option D unavailable';
+  nq.option_a = optA || 'Option A';
+  nq.option_b = optB || 'Option B';
+  nq.option_c = optC || 'Option C';
+  nq.option_d = optD || 'Option D';
 
-  let rawCorrect = nq.correct_option || nq.correctOption || nq.answer || nq.correctAnswer || nq.correct || 'A';
+  let rawCorrect = extractOptionText(nq.correct_option || nq.correctOption || nq.answer || nq.correctAnswer || nq.correct || 'A');
   rawCorrect = String(rawCorrect).trim().toUpperCase();
   if (rawCorrect.includes('A')) nq.correct_option = 'A';
   else if (rawCorrect.includes('B')) nq.correct_option = 'B';
@@ -151,15 +174,16 @@ function normalizeQuestion(q) {
   else if (rawCorrect.includes('D')) nq.correct_option = 'D';
   else nq.correct_option = 'A';
 
-  nq.type = nq.type || nq.mcqType || 'Clinical Scenario';
-  nq.difficulty = nq.difficulty || 'INI-SS';
-  nq.book = nq.book || nq.sourceBook || 'Bailey & Love';
-  nq.chapter = nq.chapter || nq.chapter_name || nq.chapterName || 'General Surgery';
-  nq.topic = nq.topic || nq.subject || nq.category || 'Surgical Management';
-  nq.subtopic = nq.subtopic || nq.sub_topic || nq.subTopic || 'Clinical Pearls';
-  nq.explanation = nq.explanation || nq.rationale || nq.answer_explanation || nq.why_correct || 'Grounded in surgical text.';
-  nq.clinical_pearl = nq.clinical_pearl || nq.clinicalPearl || nq.pearl || nq.takeaway || nq.explanation;
-  nq.reference = nq.reference || nq.citation || `${nq.book}, ${nq.chapter}, p. ${nq.page_number || 'N/A'}`;
+  nq.type = extractOptionText(nq.type || nq.mcqType) || 'Clinical Scenario';
+  nq.difficulty = extractOptionText(nq.difficulty) || 'INI-SS';
+  nq.book = extractOptionText(nq.book || nq.sourceBook) || 'Bailey & Love';
+  nq.chapter = extractOptionText(nq.chapter || nq.chapter_name || nq.chapterName) || 'General Surgery';
+  nq.topic = extractOptionText(nq.topic || nq.subject || nq.category) || 'Surgical Management';
+  nq.subtopic = extractOptionText(nq.subtopic || nq.sub_topic || nq.subTopic) || 'Clinical Pearls';
+  
+  nq.explanation = extractOptionText(nq.explanation || nq.rationale || nq.answer_explanation || nq.why_correct) || 'Grounded in surgical text.';
+  nq.clinical_pearl = extractOptionText(nq.clinical_pearl || nq.clinicalPearl || nq.pearl || nq.takeaway) || nq.explanation;
+  nq.reference = extractOptionText(nq.reference || nq.citation) || `${nq.book}, ${nq.chapter}, p. ${nq.page_number || 'N/A'}`;
 
   return nq;
 }
