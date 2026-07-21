@@ -270,7 +270,10 @@ function renderActiveProcessing(processingSource) {
       <h3>${escapeHtml(processingSource.title)}</h3>
       <span>Source File: ${escapeHtml(processingSource.filename)}</span>
     </div>
-    <button class="text-btn" onclick="show('library')">View pipeline →</button>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="retry-source-btn" data-src-id="${processingSource.id}" style="background: #e6f0fa; color: #1e6091; font-size: 11px; font-weight: bold; cursor: pointer; padding: 6px 12px; border: none; border-radius: 4px;">🔄 Restart Pipeline</button>
+      <button class="text-btn" onclick="show('library')">View pipeline →</button>
+    </div>
   </div>
   
   <div class="timer-summary-bar" style="display: flex; gap: 15px; background: #f4f8f6; padding: 12px 16px; border-radius: 6px; margin: 15px 0 10px 0; border: 1px solid #dce8e3;">
@@ -307,6 +310,21 @@ function renderActiveProcessing(processingSource) {
     <div><small style="display: block; color: var(--muted); font-size: 10px;">MCQS GENERATED</small><b style="font-size: 13px; color: #1f8255;">${qCount} MCQs</b></div>
     <div><small style="display: block; color: var(--muted); font-size: 10px;">STATUS</small><b style="font-size: 12px; color: #396258;">Generating Grounded</b></div>
   </div>`;
+
+  const restartBtn = panel.querySelector('.retry-source-btn');
+  if (restartBtn) {
+    restartBtn.onclick = async () => {
+      try {
+        restartBtn.disabled = true;
+        restartBtn.textContent = 'Restarting...';
+        const res = await fetch(`/api/sources/${processingSource.id}/start`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to restart source pipeline');
+        await loadDashboard();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
 }
 
 // Render Priority Review Queue (on Overview tab)

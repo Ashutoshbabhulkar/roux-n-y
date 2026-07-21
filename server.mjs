@@ -150,6 +150,21 @@ async function updateSourceProgressDetails(sourceId, details) {
   }
 }
 
+async function fetchWithHardTimeout(url, options, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`API request timed out after ${timeoutMs / 1000}s`));
+  }, timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
 async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, statusCallback) {
   const geminiKeys = (process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
   const openrouterKeys = (process.env.OPENROUTER_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
@@ -167,10 +182,8 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
 
   const openrouterModels = [
     'google/gemini-2.0-flash-001',
-    'google/gemini-2.0-flash-lite:free',
-    'google/gemini-flash-1.5-8b',
-    'anthropic/claude-3.5-haiku',
-    'openai/gpt-4o-mini'
+    'openai/gpt-4o-mini',
+    'anthropic/claude-3.5-haiku'
   ];
 
   const groqModels = [
@@ -233,10 +246,9 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
           logSys('info', `Calling Gemini Direct (${model}${keyTag})...`);
           
           const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-          const res = await fetch(apiUrl, {
+          const res = await fetchWithHardTimeout(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(30000),
             body: JSON.stringify({
               contents: [
                 {
@@ -248,7 +260,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               ],
               generationConfig: geminiSchemaConfig
             })
-          });
+          }, 15000);
 
           if (res.ok) {
             const data = await res.json();
@@ -262,8 +274,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
             lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
             logSys('warn', lastError);
             
-            // INSTANT PROVIDER SWITCH: If payment (402), quota/forbidden (403), or billing/key error, break loop & switch provider immediately!
-            if (res.status === 402 || res.status === 403 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
+            if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
               logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
               if (statusCallback) statusCallback(`Quota/Billing limit on Gemini. Switching to OpenRouter/Groq...`, model);
               break; // Jump to OpenRouter immediately
@@ -285,7 +296,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
           if (statusCallback) statusCallback(`Calling OpenRouter (${model.split('/')[1] || model})...`, model);
           logSys('info', `Calling OpenRouter (${model})...`);
           
-          const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          const res = await fetchWithHardTimeout('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${apiKey}`,
@@ -293,7 +304,6 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               'X-Title': 'Roux N Y',
               'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(30000),
             body: JSON.stringify({
               model,
               messages: [
@@ -309,7 +319,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
                 }
               ]
             })
-          });
+          }, 15000);
 
           if (res.ok) {
             const data = await res.json();
@@ -344,13 +354,12 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
           if (statusCallback) statusCallback(`Calling Groq Ultra-Fast AI (${model})...`, model);
           logSys('info', `Calling Groq API (${model})...`);
           
-          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          const res = await fetchWithHardTimeout('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(30000),
             body: JSON.stringify({
               model,
               messages: [
@@ -361,7 +370,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, status
               ],
               response_format: { type: 'json_object' }
             })
-          });
+          }, 15000);
 
           if (res.ok) {
             const data = await res.json();
