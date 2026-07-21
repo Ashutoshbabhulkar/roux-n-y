@@ -96,7 +96,7 @@ function show(id) {
   document.querySelectorAll('.nav').forEach(n => n.classList.toggle('active', n.dataset.view === id));
   
   const titles = {
-    dashboard: 'Good morning, Dr. Mehta.',
+    dashboard: 'Good morning, Dr. Babhulkar.',
     questions: 'Question bank',
     library: 'Source library',
     coverage: 'Coverage audit',

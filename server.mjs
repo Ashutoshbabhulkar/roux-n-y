@@ -766,7 +766,7 @@ async function api(req, res, url) {
       kind: 'rejected',
       text: `Source deleted${deleteQuestions ? ` (${deletedQCount} MCQs removed)` : ' (MCQs kept)'}`,
       detail: source.filename,
-      actor: 'DR',
+      actor: 'AB',
       at: new Date().toISOString()
     });
     
