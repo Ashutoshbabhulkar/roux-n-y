@@ -293,23 +293,17 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
       for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
         const apiKey = geminiKeys[keyIdx];
         for (const model of geminiModels) {
-          try {
-            const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
-            
-            let res;
-            let attempts = 0;
-            const maxAttempts = 4;
-            let backoff = 4000; // start with 4s backoff
-
-            while (attempts < maxAttempts) {
+          const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
+          
+          for (let attempt = 1; attempt <= 4; attempt++) {
+            try {
               if (statusCallback) {
-                const attemptTag = attempts > 0 ? ` (Attempt ${attempts + 1}/${maxAttempts})` : '';
-                statusCallback(`Calling Gemini Direct (${model}${keyTag})${attemptTag}...`, model);
+                statusCallback(`Calling Gemini Direct (${model}${keyTag}, attempt ${attempt}/4)...`, model);
               }
-              logSys('info', `Calling Gemini Direct (${model}${keyTag}) attempt ${attempts + 1}...`);
+              logSys('info', `Calling Gemini Direct (${model}${keyTag}, attempt ${attempt}/4)...`);
               
               const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-              res = await fetchWithHardTimeout(apiUrl, {
+              const res = await fetchWithHardTimeout(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -325,49 +319,61 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
                 })
               }, 25000);
 
-              if (res.status === 429) {
-                attempts++;
-                if (attempts < maxAttempts) {
-                  const waitMs = backoff * Math.pow(2, attempts - 1) + Math.random() * 1000;
-                  const waitSec = Math.ceil(waitMs / 1000);
-                  if (statusCallback) statusCallback(`Gemini rate limited (429). Retrying in ${waitSec}s... (Attempt ${attempts}/${maxAttempts})`, model);
-                  logSys('warn', `Gemini 429 rate limited. Waiting ${waitSec}s before retry...`);
-                  await new Promise(r => setTimeout(r, waitMs));
-                  continue;
+              if (res.ok) {
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                  apiProviderStatus.gemini.status = 'active';
+                  apiProviderStatus.gemini.error = null;
+                  apiProviderStatus.gemini.quotaResetAt = null;
+                  logSys('info', `Successfully generated response with Gemini ${model}`);
+                  return text;
                 }
-              }
-              break;
-            }
+              } else if (res.status === 429) {
+                const errText = await res.text();
+                lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
+                logSys('warn', lastError);
 
-            if (res.ok) {
-              const data = await res.json();
-              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text) {
-                apiProviderStatus.gemini.status = 'active';
-                apiProviderStatus.gemini.error = null;
-                apiProviderStatus.gemini.quotaResetAt = null;
-                logSys('info', `Successfully generated response with Gemini ${model}`);
-                return text;
-              }
-            } else {
-              const errText = await res.text();
-              lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
-              logSys('warn', lastError);
-              
-              if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
+                let waitMs = 15000;
+                try {
+                  const errJson = JSON.parse(errText);
+                  const retryObj = errJson?.error?.details?.find(d => d['@type']?.includes('RetryInfo'));
+                  if (retryObj && retryObj.retryDelay) {
+                    const sec = parseFloat(retryObj.retryDelay.replace('s', ''));
+                    if (!isNaN(sec)) {
+                      waitMs = Math.ceil((sec + 3) * 1000);
+                    }
+                  }
+                } catch (_) {}
+
+                const waitSecStr = (waitMs / 1000).toFixed(0);
+                
                 apiProviderStatus.gemini.status = 'rate_limited';
-                apiProviderStatus.gemini.error = `429 Quota Exceeded (${model})`;
-                apiProviderStatus.gemini.quotaResetAt = Date.now() + 5000; // 5s countdown
-                logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
-                if (statusCallback) statusCallback(`Quota/Billing limit on Gemini (429). Switching to OpenRouter...`, model);
-                break; // Jump to next provider immediately
+                apiProviderStatus.gemini.error = `429 Rate Limited (${model})`;
+                apiProviderStatus.gemini.quotaResetAt = Date.now() + waitMs;
+
+                if (statusCallback) statusCallback(`Rate limited on ${model}. Waiting ${waitSecStr}s for quota reset...`, model);
+                logSys('warn', `Rate limited on ${model}. Waiting ${waitSecStr}s for RPM quota reset...`);
+                
+                await new Promise(r => setTimeout(r, waitMs));
+                continue;
+              } else if (res.status === 503) {
+                lastError = `503 Service Unavailable on ${model}`;
+                logSys('warn', lastError);
+                if (statusCallback) statusCallback(`503 High demand on ${model}. Waiting 6s...`, model);
+                await new Promise(r => setTimeout(r, 6000));
+                continue;
+              } else {
+                const errText = await res.text();
+                lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 150)}`;
+                logSys('warn', lastError);
+                break; // Try next model/key
               }
-              continue;
+            } catch (err) {
+              lastError = `Gemini fetch error on ${model} (attempt ${attempt}/4): ${err.message}`;
+              logSys('warn', lastError);
+              if (attempt < 4) await new Promise(r => setTimeout(r, 5000));
             }
-          } catch (err) {
-            lastError = `Gemini fetch error on ${model}: ${err.message}`;
-            logSys('warn', lastError);
-            continue;
           }
         }
       }
@@ -494,9 +500,9 @@ async function runProcessingPipeline(sourceId) {
     for (let idx = 0; idx < chunks.length; idx++) {
       if (idx > 0) {
         await updateSourceProgressDetails(sourceId, {
-          statusMessage: `Pausing 3s between chunks to optimize quota...`
+          statusMessage: `Pausing 6s between chunks to optimize quota...`
         });
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 6000));
       }
       
       const chunk = chunks[idx];
