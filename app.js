@@ -1519,15 +1519,9 @@ async function updateApiProviderStatusUI() {
     const groqLabel = $('#label-groq');
     const groqDot = $('#dot-groq');
     if (groqLabel && groqDot) {
-      if (providers.groq.status === 'active') {
-        groqLabel.textContent = 'Active & Grounded';
-        groqLabel.style.color = '#34d399';
-        groqDot.style.background = '#34d399';
-      } else {
-        groqLabel.textContent = providers.groq.error || 'Unconfigured';
-        groqLabel.style.color = '#f87171';
-        groqDot.style.background = '#f87171';
-      }
+      groqLabel.textContent = 'Disabled (Text-only)';
+      groqLabel.style.color = '#94a3b8';
+      groqDot.style.background = '#94a3b8';
     }
 
     // 3. OpenRouter status

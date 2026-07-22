@@ -295,25 +295,49 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
         for (const model of geminiModels) {
           try {
             const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
-            if (statusCallback) statusCallback(`Calling Gemini Direct (${model}${keyTag})...`, model);
-            logSys('info', `Calling Gemini Direct (${model}${keyTag})...`);
             
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-            const res = await fetchWithHardTimeout(apiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [
-                  {
-                    parts: [
-                      { text: prompt },
-                      { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
-                    ]
-                  }
-                ],
-                generationConfig: geminiSchemaConfig
-              })
-            }, 15000);
+            let res;
+            let attempts = 0;
+            const maxAttempts = 4;
+            let backoff = 4000; // start with 4s backoff
+
+            while (attempts < maxAttempts) {
+              if (statusCallback) {
+                const attemptTag = attempts > 0 ? ` (Attempt ${attempts + 1}/${maxAttempts})` : '';
+                statusCallback(`Calling Gemini Direct (${model}${keyTag})${attemptTag}...`, model);
+              }
+              logSys('info', `Calling Gemini Direct (${model}${keyTag}) attempt ${attempts + 1}...`);
+              
+              const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+              res = await fetchWithHardTimeout(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                      ]
+                    }
+                  ],
+                  generationConfig: geminiSchemaConfig
+                })
+              }, 25000);
+
+              if (res.status === 429) {
+                attempts++;
+                if (attempts < maxAttempts) {
+                  const waitMs = backoff * Math.pow(2, attempts - 1) + Math.random() * 1000;
+                  const waitSec = Math.ceil(waitMs / 1000);
+                  if (statusCallback) statusCallback(`Gemini rate limited (429). Retrying in ${waitSec}s... (Attempt ${attempts}/${maxAttempts})`, model);
+                  logSys('warn', `Gemini 429 rate limited. Waiting ${waitSec}s before retry...`);
+                  await new Promise(r => setTimeout(r, waitMs));
+                  continue;
+                }
+              }
+              break;
+            }
 
             if (res.ok) {
               const data = await res.json();
@@ -335,7 +359,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
                 apiProviderStatus.gemini.error = `429 Quota Exceeded (${model})`;
                 apiProviderStatus.gemini.quotaResetAt = Date.now() + 5000; // 5s countdown
                 logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
-                if (statusCallback) statusCallback(`Quota/Billing limit on Gemini (429). Switching to Groq...`, model);
+                if (statusCallback) statusCallback(`Quota/Billing limit on Gemini (429). Switching to OpenRouter...`, model);
                 break; // Jump to next provider immediately
               }
               continue;
@@ -369,11 +393,17 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
               messages: [
                 {
                   role: 'user',
-                  content: fullPromptForTextModel
+                  content: [
+                    { type: 'text', text: prompt },
+                    {
+                      type: 'image_url',
+                      image_url: { url: `data:application/pdf;base64,${base64Pdf}` }
+                    }
+                  ]
                 }
               ]
             })
-          }, 15000);
+          }, 20000);
 
           if (res.ok) {
             const data = await res.json();
@@ -392,68 +422,10 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
               apiProviderStatus.openrouter.status = 'unconfigured';
               apiProviderStatus.openrouter.error = '401 Invalid Key';
             }
-            if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('credit') || errText.toLowerCase().includes('balance') || errText.toLowerCase().includes('quota')) {
-              logSys('warn', `Payment/Quota error on OpenRouter (${res.status}). Instantly switching provider...`);
-              if (statusCallback) statusCallback(`Quota/Billing limit on OpenRouter. Switching to Groq...`, model);
-              break; // Jump to Groq immediately
-            }
             continue;
           }
         } catch (err) {
           lastError = `OpenRouter error on ${model}: ${err.message}`;
-          logSys('warn', lastError);
-          continue;
-        }
-      }
-    }
-
-    // 3. Groq API
-    for (const apiKey of groqKeys) {
-      for (const model of groqModels) {
-        try {
-          if (statusCallback) statusCallback(`Calling Groq Ultra-Fast AI (${model})...`, model);
-          logSys('info', `Calling Groq API (${model})...`);
-          
-          const res = await fetchWithHardTimeout('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model,
-              messages: [
-                {
-                  role: 'user',
-                  content: fullPromptForTextModel
-                }
-              ],
-              response_format: { type: 'json_object' }
-            })
-          }, 15000);
-
-          if (res.ok) {
-            const data = await res.json();
-            const text = data.choices?.[0]?.message?.content;
-            if (text) {
-              apiProviderStatus.groq.status = 'active';
-              apiProviderStatus.groq.error = null;
-              logSys('info', `Successfully generated response via Groq (${model})`);
-              return text;
-            }
-          } else {
-            const errText = await res.text();
-            lastError = `Groq ${model} (${res.status}): ${errText.slice(0, 100)}`;
-            logSys('warn', lastError);
-            if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('rate') || errText.toLowerCase().includes('quota')) {
-              logSys('warn', `Quota/Rate limit on Groq (${res.status}). Instantly trying next candidate...`);
-              if (statusCallback) statusCallback(`Quota limit on Groq (${model}). Trying next...`, model);
-              break;
-            }
-            continue;
-          }
-        } catch (err) {
-          lastError = `Groq error on ${model}: ${err.message}`;
           logSys('warn', lastError);
           continue;
         }
@@ -466,7 +438,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
     }
   }
 
-  throw new Error(`All fallback AI providers and models failed. Last error: ${lastError}`);
+  throw new Error(`All grounded AI providers failed. Last error: ${lastError}`);
 }
 
 async function runProcessingPipeline(sourceId) {
