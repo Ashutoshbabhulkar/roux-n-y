@@ -292,9 +292,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
     if (!apiProviderStatus.gemini.quotaResetAt || now >= apiProviderStatus.gemini.quotaResetAt) {
       for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
         const apiKey = geminiKeys[keyIdx];
-        let keyExhausted = false;
         for (const model of geminiModels) {
-          if (keyExhausted) break;
           const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
           
           for (let attempt = 1; attempt <= 4; attempt++) {
@@ -345,7 +343,6 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
                   apiProviderStatus.gemini.quotaResetAt = Date.now() + 3600 * 1000; // 1 hour lockout
                   logSys('warn', `Gemini daily quota/billing limit reached. Aborting retries for this key.`);
                   if (statusCallback) statusCallback(`Gemini Daily Quota Exceeded. Please upgrade billing or check key.`, model);
-                  keyExhausted = true;
                   break; // Stop retrying, fail over/throw immediately
                 }
 
@@ -484,8 +481,8 @@ async function runProcessingPipeline(sourceId) {
       throw new Error('No API keys configured. Please add GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY.');
     }
     
-    // Batch into chunks of 5 pages per chunk for ultra-fast processing & progress updates
-    const CHUNK_SIZE = 5;
+    // Batch into chunks of 3 pages per chunk to use resources responsibly and prevent quota exhaustion
+    const CHUNK_SIZE = 3;
     const chunks = [];
     for (let cStart = overallStart; cStart <= overallEnd; cStart += CHUNK_SIZE) {
       const cEnd = Math.min(cStart + CHUNK_SIZE - 1, overallEnd);
