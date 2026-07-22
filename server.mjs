@@ -334,6 +334,18 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
                 lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
                 logSys('warn', lastError);
 
+                const isDailyQuotaExceeded = errText.toLowerCase().includes('quota') && 
+                  (errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('parent') || errText.toLowerCase().includes('project') || errText.toLowerCase().includes('exceeded'));
+
+                if (isDailyQuotaExceeded) {
+                  apiProviderStatus.gemini.status = 'error';
+                  apiProviderStatus.gemini.error = '429 Daily Quota Exceeded (Check Google AI Studio Billing)';
+                  apiProviderStatus.gemini.quotaResetAt = Date.now() + 3600 * 1000; // 1 hour lockout
+                  logSys('warn', `Gemini daily quota/billing limit reached. Aborting retries for this key.`);
+                  if (statusCallback) statusCallback(`Gemini Daily Quota Exceeded. Please upgrade billing or check key.`, model);
+                  break; // Stop retrying, fail over/throw immediately
+                }
+
                 let waitMs = 15000;
                 try {
                   const errJson = JSON.parse(errText);
