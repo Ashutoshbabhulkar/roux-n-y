@@ -224,8 +224,6 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
   const geminiModels = [
     'gemini-2.0-flash',
     'gemini-1.5-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-3.5-flash',
     'gemini-1.5-pro'
   ];
 
@@ -335,7 +333,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
               if (res.status === 402 || res.status === 403 || res.status === 429 || errText.toLowerCase().includes('quota') || errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('payment') || errText.toLowerCase().includes('exceeded')) {
                 apiProviderStatus.gemini.status = 'rate_limited';
                 apiProviderStatus.gemini.error = `429 Quota Exceeded (${model})`;
-                apiProviderStatus.gemini.quotaResetAt = Date.now() + 60000; // 60s countdown
+                apiProviderStatus.gemini.quotaResetAt = Date.now() + 5000; // 5s countdown
                 logSys('warn', `Payment/Quota/Billing error on Gemini (${res.status}). Instantly switching provider...`);
                 if (statusCallback) statusCallback(`Quota/Billing limit on Gemini (429). Switching to Groq...`, model);
                 break; // Jump to next provider immediately
