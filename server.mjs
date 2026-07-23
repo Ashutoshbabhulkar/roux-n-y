@@ -268,8 +268,9 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
 
   const geminiModels = [
     'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-pro-latest'
   ];
 
   const openrouterModels = [
@@ -593,6 +594,7 @@ async function runProcessingPipeline(sourceId) {
       const extractedText = await extractTextFromPdfBuffer(sliceBuffer);
 
       const chunkPageCount = (chunk.end - chunk.start + 1);
+      const targetMcqCount = Math.max(4, chunkPageCount * 4);
       const prompt = `Generate exactly ${targetMcqCount} publication-ready surgical multiple-choice questions grounded exclusively in the provided text content for pages ${chunk.start}–${chunk.end}. Ensure a balance of factual (40%), conceptual (40%), and applied (20%) question types.`;
       let candidateText;
       for (let chunkAttempt = 1; chunkAttempt <= 3; chunkAttempt++) {
