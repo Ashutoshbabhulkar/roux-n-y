@@ -1763,6 +1763,90 @@ function renderTestPreview() {
     `;
   }
 
+  // Populate Tabulated Preview Summary Tables (Preview Only)
+  const breakdownContainer = $('#preview-test-breakdown-tables');
+  if (breakdownContainer && currentTestDraft.questions.length > 0) {
+    const totalQ = currentTestDraft.questions.length;
+
+    // 1. Group by Chapter / Source
+    const chapterMap = {};
+    currentTestDraft.questions.forEach(q => {
+      const srcName = q.sourceTitle || q.book || q.sourceFilename || 'General Surgical Textbook';
+      chapterMap[srcName] = (chapterMap[srcName] || 0) + 1;
+    });
+
+    // 2. Group by Question Type
+    const typeMap = {};
+    currentTestDraft.questions.forEach(q => {
+      const typeName = q.type || 'Clinical Scenario';
+      typeMap[typeName] = (typeMap[typeName] || 0) + 1;
+    });
+
+    const chapterRows = Object.entries(chapterMap).map(([src, count]) => {
+      const pct = Math.round((count / totalQ) * 100);
+      return `
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--border); font-weight: 500;">${escapeHtml(src)}</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: center; font-weight: bold; color: var(--mint);">${count}</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; font-family: 'DM Mono', monospace; font-size: 11px;">${pct}%</td>
+        </tr>
+      `;
+    }).join('');
+
+    const typeRows = Object.entries(typeMap).map(([type, count]) => {
+      const pct = Math.round((count / totalQ) * 100);
+      return `
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--border); font-weight: 500;">${escapeHtml(type)}</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: center; font-weight: bold; color: #0284c7;">${count}</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; font-family: 'DM Mono', monospace; font-size: 11px;">${pct}%</td>
+        </tr>
+      `;
+    }).join('');
+
+    breakdownContainer.innerHTML = `
+      <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: left;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h4 style="margin: 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">📊 Exam Question &amp; Chapter Distribution Summary (Preview Only)</h4>
+          <span style="font-size: 11px; background: rgba(2,132,199,0.1); color: #0284c7; padding: 2px 8px; border-radius: 10px; font-weight: 600;">Not included in exported Word file</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+          <div>
+            <div style="font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px;">📚 Questions per Selected Chapter / Source</div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--border);">
+              <thead>
+                <tr style="background: rgba(0,0,0,0.03); text-align: left;">
+                  <th style="padding: 6px 10px; border-bottom: 1px solid var(--border);">Chapter / Source</th>
+                  <th style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: center;">MCQs</th>
+                  <th style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right;">Ratio</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${chapterRows}
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <div style="font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px;">🎯 Questions per MCQ Category / Type</div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--border);">
+              <thead>
+                <tr style="background: rgba(0,0,0,0.03); text-align: left;">
+                  <th style="padding: 6px 10px; border-bottom: 1px solid var(--border);">Question Type</th>
+                  <th style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: center;">MCQs</th>
+                  <th style="padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right;">Ratio</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${typeRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   if (qList) {
     if (currentTestDraft.questions.length === 0) {
       qList.innerHTML = `<div class="empty-state-small"><p>No questions in test.</p></div>`;
