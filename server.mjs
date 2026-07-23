@@ -284,20 +284,29 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
 
   const geminiModels = [
     'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-1.5-pro',
+    'gemini-1.5-flash-8b'
   ];
 
   const openrouterModels = [
-    'meta-llama/llama-3.3-70b-instruct',
+    'google/gemini-2.0-flash-lite-preview-02-05:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'deepseek/deepseek-r1:free',
+    'qwen/qwen-2.5-72b-instruct:free',
     'google/gemini-2.0-flash-001',
-    'openai/gpt-4o-mini',
-    'deepseek/deepseek-chat'
+    'meta-llama/llama-3.3-70b-instruct',
+    'deepseek/deepseek-chat',
+    'openai/gpt-4o-mini'
   ];
 
   const groqModels = [
     'llama-3.3-70b-versatile',
-    'mixtral-8x7b-32768'
+    'llama-3.1-70b-versatile',
+    'mixtral-8x7b-32768',
+    'llama3-70b-8192',
+    'gemma2-9b-it'
   ];
 
   const systemPrompt = `You are a world-class multidisciplinary surgical education board consisting of:
