@@ -101,9 +101,13 @@ function show(id) {
     questions: 'Question bank',
     library: 'Source library',
     coverage: 'Coverage audit',
-    exports: 'Exports'
+    exports: 'Exports',
+    tests: 'Test Studio & Exam Generator'
   };
   $('#page-title').textContent = titles[id] || 'Roux N Y';
+  if (id === 'tests' && typeof renderTestsStudio === 'function') {
+    renderTestsStudio();
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1557,3 +1561,458 @@ if (btnResetGemini) {
 
 setInterval(updateApiProviderStatusUI, 1000);
 updateApiProviderStatusUI();
+
+// ==========================================
+// TEST STUDIO & EXAM GENERATOR LOGIC
+// ==========================================
+
+let globalTests = [];
+let currentTestDraft = null;
+
+async function loadSavedTests() {
+  try {
+    const res = await fetch('/api/tests');
+    if (res.ok) {
+      const data = await res.json();
+      globalTests = data.tests || [];
+    }
+  } catch (e) {
+    console.warn('[Roux N Y] Failed to load saved tests:', e);
+  }
+}
+
+async function renderTestsStudio() {
+  await loadSavedTests();
+  
+  const testCountEl = $('#test-metric-count');
+  const availQEl = $('#test-metric-q-available');
+  if (testCountEl) testCountEl.textContent = globalTests.length;
+  if (availQEl) availQEl.textContent = globalQuestions.length;
+
+  const container = $('#tests-list-container');
+  if (!container) return;
+
+  if (globalTests.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state-small" style="padding: 30px 20px; text-align: center;">
+        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px;">No exam papers created yet. Click below to assemble your first exam paper.</p>
+        <button class="primary" onclick="openCreateTestModal()" style="padding: 10px 18px; font-weight: bold; border-radius: 6px;">⚡ Create New Test</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = globalTests.map(test => {
+    const dateStr = new Date(test.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const totalMarks = test.questions ? (test.questions.length * (test.config?.marksPerQ || 4)) : 0;
+    const sourcesStr = (test.config?.sources || []).length > 0 
+      ? test.config.sources.join(', ')
+      : 'All Chapters';
+
+    return `
+      <div class="test-card" style="background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+        <div style="flex: 1; min-width: 260px;">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 16px; color: var(--text);">${escapeHtml(test.title)}</strong>
+            <span style="background: rgba(46,196,182,0.15); color: #147b6e; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 12px;">${test.questions ? test.questions.length : 0} Questions</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px 0;">
+            📅 Created: ${dateStr} · ⏱ ${test.config?.duration || 45} Mins · 🎯 Total Marks: ${totalMarks} (Penalty: ${test.config?.negativeMarking || 0})
+          </p>
+          <p style="font-size: 11px; color: var(--text-muted); margin: 0; font-family: 'DM Mono', monospace;">
+            📚 Sources: ${escapeHtml(sourcesStr)}
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="btn-secondary" onclick="openPreviewSavedTest('${test.id}')" style="font-weight: 600; padding: 7px 12px; font-size: 12px;">👁️ Preview</button>
+          <button type="button" class="btn-secondary" onclick="exportSavedTestWord('${test.id}', false)" style="background: #107c41; color: white; border: none; font-weight: bold; padding: 7px 12px; font-size: 12px;">📄 Question Paper (.doc)</button>
+          <button type="button" class="primary" onclick="exportSavedTestWord('${test.id}', true)" style="background: #0284c7; border: none; font-weight: bold; padding: 7px 12px; font-size: 12px;">🔑 Answer Key (.doc)</button>
+          <button type="button" class="btn-secondary" onclick="deleteSavedTest('${test.id}')" style="background: #fde6e1; color: #d85b48; font-weight: bold; padding: 7px 10px; font-size: 12px;" title="Delete Test">🗑</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openCreateTestModal() {
+  const modalEl = $('#create-test-modal');
+  if (!modalEl) return;
+  
+  // Populate sources checkbox list
+  const sourcesContainer = $('#test-sources-checkbox-container');
+  if (sourcesContainer) {
+    if (globalSources.length === 0) {
+      sourcesContainer.innerHTML = `<span style="font-size: 12px; color: var(--text-muted);">No sources uploaded yet. Questions will be selected from all available MCQs.</span>`;
+    } else {
+      sourcesContainer.innerHTML = globalSources.map(s => `
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+          <input type="checkbox" class="test-source-cb" value="${escapeHtml(s.filename)}" checked>
+          <span>${escapeHtml(s.title || s.filename)}</span>
+          <small style="color: var(--text-muted); font-size: 11px;">(${s.questionsGeneratedCount || 0} MCQs)</small>
+        </label>
+      `).join('');
+    }
+  }
+
+  $('#test-title-input').value = `Exam Paper - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  modalEl.classList.add('show');
+}
+
+const btnCreateTestTrigger = $('#btn-create-test-trigger');
+if (btnCreateTestTrigger) btnCreateTestTrigger.onclick = openCreateTestModal;
+
+const btnCreateTestClose = $('#create-test-close');
+if (btnCreateTestClose) btnCreateTestClose.onclick = () => $('#create-test-modal').classList.remove('show');
+
+const btnCreateTestCancel = $('#btn-create-test-cancel');
+if (btnCreateTestCancel) btnCreateTestCancel.onclick = () => $('#create-test-modal').classList.remove('show');
+
+const linkSelectAllSources = $('#test-select-all-sources');
+if (linkSelectAllSources) {
+  linkSelectAllSources.onclick = (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.test-source-cb').forEach(cb => cb.checked = true);
+  };
+}
+
+const linkDeselectAllSources = $('#test-deselect-all-sources');
+if (linkDeselectAllSources) {
+  linkDeselectAllSources.onclick = (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.test-source-cb').forEach(cb => cb.checked = false);
+  };
+}
+
+// Submit Test Creation Form
+const createTestForm = $('#create-test-form');
+if (createTestForm) {
+  createTestForm.onsubmit = (e) => {
+    e.preventDefault();
+    const title = $('#test-title-input').value.trim();
+    const selectedSources = Array.from(document.querySelectorAll('.test-source-cb:checked')).map(cb => cb.value);
+    const qCount = parseInt($('#test-q-count-input').value, 10) || 25;
+    const marksPerQ = parseFloat($('#test-marks-per-q-input').value) || 4;
+    const negativeMarking = $('#test-negative-marking-select').value;
+    const duration = parseInt($('#test-duration-input').value, 10) || 45;
+    const selectedTypes = Array.from(document.querySelectorAll('.test-type-cb:checked')).map(cb => cb.value);
+
+    if (globalQuestions.length === 0) {
+      alert('No MCQs available in database. Please upload a textbook PDF to generate questions first.');
+      return;
+    }
+
+    // Filter questions matching chosen sources and types
+    let candidatePool = globalQuestions.filter(q => {
+      const matchSource = selectedSources.length === 0 || selectedSources.some(src => (q.sourceFilename && q.sourceFilename.includes(src)) || (q.book && q.book.includes(src)) || (q.sourceTitle && q.sourceTitle.includes(src)));
+      const matchType = selectedTypes.length === 0 || selectedTypes.includes(q.type);
+      return matchSource && matchType;
+    });
+
+    if (candidatePool.length === 0) {
+      candidatePool = globalQuestions; // fallback to all available if filter too strict
+    }
+
+    // Shuffle and pick requested qCount
+    const shuffled = [...candidatePool].sort(() => 0.5 - Math.random());
+    const selectedQuestions = shuffled.slice(0, Math.min(qCount, shuffled.length));
+
+    currentTestDraft = {
+      id: `TEST-${Date.now()}`,
+      title,
+      questions: selectedQuestions,
+      config: {
+        sources: selectedSources,
+        qCount: selectedQuestions.length,
+        marksPerQ,
+        negativeMarking,
+        duration,
+        types: selectedTypes
+      },
+      createdAt: new Date().toISOString()
+    };
+
+    $('#create-test-modal').classList.remove('show');
+    openTestPreviewModal();
+  };
+}
+
+function openTestPreviewModal() {
+  if (!currentTestDraft) return;
+  const modalEl = $('#test-preview-modal');
+  if (!modalEl) return;
+
+  $('#preview-test-title').textContent = currentTestDraft.title;
+  renderTestPreview();
+  modalEl.classList.add('show');
+}
+
+function renderTestPreview() {
+  if (!currentTestDraft) return;
+  const metaBar = $('#preview-test-meta-bar');
+  const qList = $('#preview-test-q-list');
+
+  const totalMarks = currentTestDraft.questions.length * currentTestDraft.config.marksPerQ;
+
+  if (metaBar) {
+    metaBar.innerHTML = `
+      <div><strong>Total Questions:</strong> ${currentTestDraft.questions.length}</div>
+      <div><strong>Total Marks:</strong> ${totalMarks} (${currentTestDraft.config.marksPerQ} Marks/Q)</div>
+      <div><strong>Negative Marking:</strong> ${currentTestDraft.config.negativeMarking}</div>
+      <div><strong>Duration:</strong> ${currentTestDraft.config.duration} Mins</div>
+    `;
+  }
+
+  if (qList) {
+    if (currentTestDraft.questions.length === 0) {
+      qList.innerHTML = `<div class="empty-state-small"><p>No questions in test.</p></div>`;
+      return;
+    }
+
+    qList.innerHTML = currentTestDraft.questions.map((q, idx) => `
+      <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: left;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 10px;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <strong style="font-size: 14px; color: var(--mint);">Q${idx + 1}.</strong>
+            <span style="background: rgba(0,0,0,0.06); font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(q.type || 'Clinical Scenario')}</span>
+            <span style="background: rgba(2,132,199,0.1); color: #0284c7; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(q.difficulty || 'INI-SS')}</span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="btn-secondary" onclick="swapTestQuestion(${idx})" style="padding: 3px 8px; font-size: 11px; font-weight: 600;" title="Replace with another random question">🔄 Swap</button>
+            <button type="button" class="btn-secondary" onclick="removeTestQuestion(${idx})" style="padding: 3px 8px; font-size: 11px; color: #d85b48; font-weight: 600;" title="Remove from test">🗑 Remove</button>
+          </div>
+        </div>
+
+        <p style="font-size: 14px; font-weight: 600; margin: 0 0 10px 0; line-height: 1.5; color: var(--text);">${escapeHtml(q.question)}</p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px; font-size: 13px; margin-bottom: 8px;">
+          <div style="padding: 6px 10px; border-radius: 4px; background: ${q.correct_option === 'A' ? '#e6f3ed' : 'rgba(0,0,0,0.02)'}; border: 1px solid ${q.correct_option === 'A' ? '#2ec4b6' : 'var(--border)'};"><strong>A.</strong> ${escapeHtml(q.option_a)}</div>
+          <div style="padding: 6px 10px; border-radius: 4px; background: ${q.correct_option === 'B' ? '#e6f3ed' : 'rgba(0,0,0,0.02)'}; border: 1px solid ${q.correct_option === 'B' ? '#2ec4b6' : 'var(--border)'};"><strong>B.</strong> ${escapeHtml(q.option_b)}</div>
+          <div style="padding: 6px 10px; border-radius: 4px; background: ${q.correct_option === 'C' ? '#e6f3ed' : 'rgba(0,0,0,0.02)'}; border: 1px solid ${q.correct_option === 'C' ? '#2ec4b6' : 'var(--border)'};"><strong>C.</strong> ${escapeHtml(q.option_c)}</div>
+          <div style="padding: 6px 10px; border-radius: 4px; background: ${q.correct_option === 'D' ? '#e6f3ed' : 'rgba(0,0,0,0.02)'}; border: 1px solid ${q.correct_option === 'D' ? '#2ec4b6' : 'var(--border)'};"><strong>D.</strong> ${escapeHtml(q.option_d)}</div>
+        </div>
+
+        <div style="font-size: 11px; color: var(--text-muted); font-family: 'DM Mono', monospace; margin-top: 6px;">
+          📖 Reference: ${escapeHtml(q.reference || q.book || 'Grounded PDF Citation')}
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function swapTestQuestion(index) {
+  if (!currentTestDraft || !currentTestDraft.questions[index]) return;
+  const currentIdSet = new Set(currentTestDraft.questions.map(q => q.id));
+  const availableOthers = globalQuestions.filter(q => !currentIdSet.has(q.id));
+
+  if (availableOthers.length === 0) {
+    alert('No other unused questions available in database to swap.');
+    return;
+  }
+
+  const randomNew = availableOthers[Math.floor(Math.random() * availableOthers.length)];
+  currentTestDraft.questions[index] = randomNew;
+  renderTestPreview();
+}
+
+function removeTestQuestion(index) {
+  if (!currentTestDraft || !currentTestDraft.questions[index]) return;
+  currentTestDraft.questions.splice(index, 1);
+  renderTestPreview();
+}
+
+const btnTestPreviewClose = $('#test-preview-close');
+if (btnTestPreviewClose) btnTestPreviewClose.onclick = () => $('#test-preview-modal').classList.remove('show');
+
+const btnPreviewSaveTest = $('#btn-preview-save-test');
+if (btnPreviewSaveTest) {
+  btnPreviewSaveTest.onclick = async () => {
+    if (!currentTestDraft) return;
+    try {
+      btnPreviewSaveTest.textContent = 'Saving...';
+      const res = await fetch('/api/tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentTestDraft)
+      });
+      if (res.ok) {
+        alert('Test paper saved to library!');
+        $('#test-preview-modal').classList.remove('show');
+        renderTestsStudio();
+      }
+    } catch (e) {
+      alert('Failed to save test: ' + e.message);
+    } finally {
+      btnPreviewSaveTest.textContent = '💾 Save Test to Library';
+    }
+  };
+}
+
+// Word Export Buttons in Test Workbench
+const btnPreviewExportDocxQP = $('#btn-preview-export-docx-qp');
+if (btnPreviewExportDocxQP) {
+  btnPreviewExportDocxQP.onclick = () => {
+    if (!currentTestDraft) return;
+    exportTestToWord(currentTestDraft, false);
+  };
+}
+
+const btnPreviewExportDocxKey = $('#btn-preview-export-docx-key');
+if (btnPreviewExportDocxKey) {
+  btnPreviewExportDocxKey.onclick = () => {
+    if (!currentTestDraft) return;
+    exportTestToWord(currentTestDraft, true);
+  };
+}
+
+function openPreviewSavedTest(testId) {
+  const test = globalTests.find(t => t.id === testId);
+  if (!test) return;
+  currentTestDraft = test;
+  openTestPreviewModal();
+}
+
+function exportSavedTestWord(testId, isSolutionPaper) {
+  const test = globalTests.find(t => t.id === testId);
+  if (!test) return;
+  exportTestToWord(test, isSolutionPaper);
+}
+
+async function deleteSavedTest(testId) {
+  if (!confirm('Are you sure you want to delete this test paper?')) return;
+  try {
+    const res = await fetch(`/api/tests/${testId}`, { method: 'DELETE' });
+    if (res.ok) {
+      await renderTestsStudio();
+    }
+  } catch (e) {
+    alert('Delete test failed: ' + e.message);
+  }
+}
+
+// ==========================================
+// CLIENT-SIDE HTML-TO-WORD EXPORT ENGINE
+// ==========================================
+
+function exportTestToWord(testObj, isSolutionPaper) {
+  if (!testObj || !Array.isArray(testObj.questions)) return;
+
+  const totalMarks = testObj.questions.length * (testObj.config?.marksPerQ || 4);
+  const paperTypeTitle = isSolutionPaper ? 'ANSWER KEY & DETAILED EXPLANATIONS' : 'CANDIDATE QUESTION PAPER';
+  
+  let htmlContent = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <title>${escapeHtml(testObj.title)} - ${paperTypeTitle}</title>
+      <style>
+        body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 11pt; color: #1e293b; line-height: 1.5; margin: 30pt; }
+        .header-table { width: 100%; border-collapse: collapse; border: 2pt solid #0f172a; margin-bottom: 20pt; background: #f8fafc; }
+        .header-table td { padding: 10pt; border: 1pt solid #cbd5e1; }
+        .brand-title { font-size: 18pt; font-weight: bold; color: #0f172a; text-transform: uppercase; margin: 0; }
+        .paper-subtitle { font-size: 13pt; font-weight: bold; color: #0284c7; margin-top: 4pt; text-transform: uppercase; }
+        .meta-label { font-weight: bold; color: #475569; }
+        .instructions-box { background: #f1f5f9; border-left: 4pt solid #0284c7; padding: 10pt; margin-bottom: 20pt; font-size: 10pt; }
+        .q-card { margin-bottom: 20pt; page-break-inside: avoid; border-bottom: 1pt solid #e2e8f0; padding-bottom: 15pt; }
+        .q-num { font-weight: bold; color: #0284c7; font-size: 12pt; }
+        .q-stem { font-weight: bold; font-size: 11pt; margin-bottom: 8pt; color: #0f172a; }
+        .options-table { width: 100%; border-collapse: collapse; margin-top: 6pt; margin-bottom: 10pt; }
+        .options-table td { width: 50%; padding: 6pt 10pt; border: 1pt solid #cbd5e1; vertical-align: top; font-size: 10.5pt; }
+        .correct-opt { background: #dcfce7; border-color: #16a34a !important; font-weight: bold; color: #15803d; }
+        .sol-box { background: #f8fafc; border: 1pt solid #cbd5e1; border-radius: 4pt; padding: 10pt; margin-top: 10pt; font-size: 10pt; }
+        .sol-heading { font-weight: bold; color: #0369a1; text-transform: uppercase; font-size: 9.5pt; margin-bottom: 4pt; display: block; }
+        .pearl-box { background: #fef3c7; border-left: 3pt solid #d97706; padding: 6pt 10pt; margin-top: 6pt; font-size: 9.5pt; }
+        .trap-box { background: #fee2e2; border-left: 3pt solid #dc2626; padding: 6pt 10pt; margin-top: 6pt; font-size: 9.5pt; }
+        .ref-tag { font-family: monospace; color: #64748b; font-size: 9pt; margin-top: 6pt; }
+      </style>
+    </head>
+    <body>
+      <table class="header-table">
+        <tr>
+          <td colspan="2" style="text-align: center; background: #0f172a; color: white;">
+            <div class="brand-title" style="color: white;">SCALPEX — SURGICAL INTELLIGENCE BANK</div>
+            <div class="paper-subtitle" style="color: #38bdf8;">${escapeHtml(testObj.title)}</div>
+            <div style="font-size: 11pt; margin-top: 4pt; color: #94a3b8;">${paperTypeTitle}</div>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="meta-label">Total Questions:</span> ${testObj.questions.length} MCQs</td>
+          <td><span class="meta-label">Time Allowed:</span> ${testObj.config?.duration || 45} Minutes</td>
+        </tr>
+        <tr>
+          <td><span class="meta-label">Maximum Marks:</span> ${totalMarks} Marks</td>
+          <td><span class="meta-label">Marking Scheme:</span> +${testObj.config?.marksPerQ || 4} / Correct, ${testObj.config?.negativeMarking || 0} / Incorrect</td>
+        </tr>
+      </table>
+
+      <div class="instructions-box">
+        <strong>GENERAL INSTRUCTIONS:</strong><br>
+        1. All questions are compulsory and grounded in authoritative surgical textbooks.<br>
+        2. Choose the single best answer for each question.<br>
+        ${isSolutionPaper ? '3. This document contains complete answer keys, pathophysiological rationales, and textbook citations.' : '3. Darken the appropriate box on the optical mark sheet or write your answer clearly.'}
+      </div>
+
+      <hr style="border: none; border-top: 2pt solid #0f172a; margin-bottom: 20pt;">
+  `;
+
+  testObj.questions.forEach((q, idx) => {
+    htmlContent += `
+      <div class="q-card">
+        <div class="q-stem">
+          <span class="q-num">Q${idx + 1}.</span> ${escapeHtml(q.question)}
+        </div>
+
+        <table class="options-table">
+          <tr>
+            <td class="${isSolutionPaper && q.correct_option === 'A' ? 'correct-opt' : ''}"><strong>(A)</strong> ${escapeHtml(q.option_a)}</td>
+            <td class="${isSolutionPaper && q.correct_option === 'B' ? 'correct-opt' : ''}"><strong>(B)</strong> ${escapeHtml(q.option_b)}</td>
+          </tr>
+          <tr>
+            <td class="${isSolutionPaper && q.correct_option === 'C' ? 'correct-opt' : ''}"><strong>(C)</strong> ${escapeHtml(q.option_c)}</td>
+            <td class="${isSolutionPaper && q.correct_option === 'D' ? 'correct-opt' : ''}"><strong>(D)</strong> ${escapeHtml(q.option_d)}</td>
+          </tr>
+        </table>
+    `;
+
+    if (isSolutionPaper) {
+      htmlContent += `
+        <div class="sol-box">
+          <span class="sol-heading">✔ CORRECT ANSWER: OPTION (${escapeHtml(q.correct_option || 'A')})</span>
+          <p><strong>Pathophysiological Rationale &amp; Solution:</strong> ${escapeHtml(q.explanation)}</p>
+          
+          <div style="margin-top: 6pt; font-size: 9.5pt; color: #334155;">
+            <strong>Distractor Eliminations:</strong><br>
+            • Option A: ${escapeHtml(q.why_a_wrong || 'Incorrect choice based on surgical criteria.')}<br>
+            • Option B: ${escapeHtml(q.why_b_wrong || 'Incorrect choice based on surgical criteria.')}<br>
+            • Option C: ${escapeHtml(q.why_c_wrong || 'Incorrect choice based on surgical criteria.')}<br>
+            • Option D: ${escapeHtml(q.why_d_wrong || 'Incorrect choice based on surgical criteria.')}
+          </div>
+
+          ${q.clinical_pearl ? `<div class="pearl-box"><strong>💡 Clinical Pearl:</strong> ${escapeHtml(q.clinical_pearl)}</div>` : ''}
+          ${q.exam_trap ? `<div class="trap-box"><strong>⚠️ INI-SS / NEET-SS Exam Trap:</strong> ${escapeHtml(q.exam_trap)}</div>` : ''}
+          ${q.memory_point ? `<div style="margin-top: 6pt; font-size: 9.5pt;"><strong>🧠 High-Yield Revision Point:</strong> ${escapeHtml(q.memory_point)}</div>` : ''}
+          
+          <div class="ref-tag">📖 Textbook Citation: ${escapeHtml(q.reference || q.book || 'Bailey & Love 28th Edition')}</div>
+        </div>
+      `;
+    }
+
+    htmlContent += `</div>`;
+  });
+
+  htmlContent += `
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const filenameTag = isSolutionPaper ? 'SOLUTION_KEY' : 'QUESTION_PAPER';
+  a.download = `${testObj.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${filenameTag}.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

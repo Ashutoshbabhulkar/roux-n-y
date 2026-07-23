@@ -19,6 +19,7 @@
       <a class="nav" data-view="questions"><span>◈</span>Question bank <b id="nav-q-count">0</b></a>
       <a class="nav" data-view="coverage"><span>◎</span>Coverage audit</a>
       <a class="nav" data-view="exports"><span>⇩</span>Exports</a>
+      <a class="nav" data-view="tests"><span>📝</span>Test Studio</a>
     </nav>
     <div class="sidebar-bottom">
       <div class="safe" id="global-api-status"><span>✓</span><div><strong>Grounded generation</strong><small id="global-api-status-text">Checking API connection...</small></div></div>
@@ -200,6 +201,35 @@
             📥 Restore DB from Backup File
           </label>
           <input type="file" id="restore-db-input" accept=".json" style="display: none;">
+        </div>
+      </div>
+    </section>
+
+    <section id="tests" class="view">
+      <div class="view-heading" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+        <div>
+          <p class="eyebrow" style="color: var(--mint);">EXAM GENERATION &amp; ASSESSMENT STUDIO</p>
+          <h2 style="margin: 0;">Test Studio</h2>
+          <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Assemble custom exams, chapterwise assessments, and mock papers from your grounded MCQ database.</p>
+        </div>
+        <button class="primary" id="btn-create-test-trigger" style="padding: 10px 20px; font-weight: bold; border-radius: 8px;">⚡ Create New Test</button>
+      </div>
+
+      <div class="metrics" style="margin-bottom: 24px;">
+        <article><span class="metric-icon mint">📝</span><p>Saved Tests</p><strong id="test-metric-count">0</strong><small>Active exam papers</small></article>
+        <article><span class="metric-icon blue">◈</span><p>Available MCQs</p><strong id="test-metric-q-available">0</strong><small>Ready for sampling</small></article>
+        <article><span class="metric-icon coral">⏱</span><p>Avg. Test Duration</p><strong id="test-metric-avg-time">45m</strong><small>Recommended duration</small></article>
+      </div>
+
+      <div class="panel" style="padding: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; text-align: left;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0; font-size: 16px;">Your Exam Papers &amp; Mock Tests</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Export as Word Question Paper or Answer Key</span>
+        </div>
+        <div id="tests-list-container">
+          <div class="empty-state-small">
+            <p>No test papers created yet. Click <strong>"⚡ Create New Test"</strong> to assemble your first exam paper.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -467,6 +497,110 @@
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
         <button type="button" class="btn-secondary" id="logs-refresh-btn" style="padding: 8px 14px; border-radius: 6px; font-weight: 600;">🔄 Refresh Logs</button>
         <button type="button" class="primary" id="logs-close-btn" style="padding: 8px 16px; border-radius: 6px;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Test Configuration Modal -->
+  <div class="modal-backdrop" id="create-test-modal">
+    <div class="modal edit-modal-content" style="max-width: 680px; text-align: left;">
+      <button class="close" id="create-test-close">×</button>
+      <p class="eyebrow" style="color: var(--mint);">⚡ EXAM CREATOR</p>
+      <h2>Generate Custom Exam Paper</h2>
+      <p style="margin-bottom: 20px; font-size: 13px; color: var(--text-muted);">Configure test parameters, select chapters, set marking schemes, and customize question distributions.</p>
+      
+      <form id="create-test-form">
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label for="test-title-input">Test / Exam Name</label>
+            <input type="text" id="test-title-input" required placeholder="e.g. GI Surgery Chapterwise Mock Exam 1">
+          </div>
+        </div>
+
+        <div class="form-group full-width" style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-weight: 600; font-size: 13px; color: var(--text-muted);">Select Chapters / Sources to Include</label>
+            <div style="font-size: 12px;">
+              <a href="#" id="test-select-all-sources" style="color: var(--mint); margin-right: 10px; font-weight: 600; text-decoration: none;">Select All</a>
+              <a href="#" id="test-deselect-all-sources" style="color: var(--text-muted); text-decoration: none;">Deselect All</a>
+            </div>
+          </div>
+          <div id="test-sources-checkbox-container" style="max-height: 140px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel); display: flex; flex-direction: column; gap: 8px;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="test-q-count-input">Number of Questions</label>
+            <input type="number" id="test-q-count-input" min="1" max="500" value="25" required>
+          </div>
+          <div class="form-group">
+            <label for="test-marks-per-q-input">Marks Per Correct Question</label>
+            <input type="number" id="test-marks-per-q-input" step="0.5" min="0.5" value="4" required>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="test-negative-marking-select">Negative Marking Penalty</label>
+            <select id="test-negative-marking-select">
+              <option value="0">None (0 Marks)</option>
+              <option value="-1" selected>-1 Mark (25% Penalty)</option>
+              <option value="-0.5">-0.5 Marks</option>
+              <option value="-2">-2 Marks (50% Penalty)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="test-duration-input">Allowed Time (Minutes)</label>
+            <input type="number" id="test-duration-input" min="5" max="300" value="45" required>
+          </div>
+        </div>
+
+        <div class="form-group full-width" style="margin-bottom: 16px;">
+          <label style="font-weight: 600; font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 8px;">Include Question Types (Mix)</label>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; font-size: 13px;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Clinical Scenario" checked> Clinical Scenario</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Operative Decision Making" checked> Operative Decision</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Best Next Step" checked> Best Next Step</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Most Appropriate Management" checked> Appropriate Management</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Most Likely Diagnosis" checked> Most Likely Diagnosis</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Image Based" checked> Image Based</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Case Cluster" checked> Case Cluster</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="Assertion Reason" checked> Assertion Reason</label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="test-type-cb" value="One Liner" checked> One Liner</label>
+          </div>
+        </div>
+
+        <div class="modal-foot-edit">
+          <button type="button" class="btn-secondary" id="btn-create-test-cancel">Cancel</button>
+          <button type="submit" class="primary" id="btn-create-test-submit">⚡ Generate &amp; Preview Test →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Test Preview & Review Workbench Modal -->
+  <div class="modal-backdrop" id="test-preview-modal">
+    <div class="modal edit-modal-content" style="max-width: 900px; width: 95%; text-align: left;">
+      <button class="close" id="test-preview-close">×</button>
+      <p class="eyebrow" style="color: var(--mint);">📝 TEST WORKBENCH &amp; PREVIEW</p>
+      <h2 id="preview-test-title">Exam Paper Preview</h2>
+      
+      <div id="preview-test-meta-bar" style="display: flex; gap: 14px; background: rgba(0,0,0,0.04); padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; flex-wrap: wrap; align-items: center;">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div id="preview-test-q-list" style="max-height: 440px; overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 16px;">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="modal-foot-edit" style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <button type="button" class="btn-secondary" id="btn-preview-save-test" style="font-weight: 600;">💾 Save Test to Library</button>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn-secondary" id="btn-preview-export-docx-qp" style="background: #107c41; color: white; border: none; font-weight: bold;">📄 Export Question Paper (Word)</button>
+          <button type="button" class="primary" id="btn-preview-export-docx-key" style="background: #0284c7; border: none; font-weight: bold;">🔑 Export Answer Key &amp; Solutions (Word)</button>
+        </div>
       </div>
     </div>
   </div>

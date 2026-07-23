@@ -1051,6 +1051,46 @@ async function api(req, res, url) {
     return send(res, 200, { success: true, message: 'Gemini Quota reset.' });
   }
 
+  // Get all saved tests
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/api/tests') {
+    const data = await readData();
+    return send(res, 200, { tests: data.tests || [] });
+  }
+
+  // Save/Update a test
+  if (req.method === 'POST' && url.pathname === '/api/tests') {
+    try {
+      const bodyBuffer = await body(req);
+      const testPayload = JSON.parse(bodyBuffer.toString('utf8'));
+      const data = await readData();
+      data.tests = data.tests || [];
+      
+      const existingIdx = data.tests.findIndex(t => t.id === testPayload.id);
+      if (existingIdx >= 0) {
+        data.tests[existingIdx] = { ...data.tests[existingIdx], ...testPayload, updatedAt: new Date().toISOString() };
+      } else {
+        testPayload.id = testPayload.id || `TEST-${Date.now()}`;
+        testPayload.createdAt = new Date().toISOString();
+        data.tests.unshift(testPayload);
+      }
+      
+      await writeData(data);
+      return send(res, 201, { test: testPayload, tests: data.tests });
+    } catch (e) {
+      return send(res, 400, { error: e.message });
+    }
+  }
+
+  // Delete a test
+  const deleteTestMatch = url.pathname.match(/^\/api\/tests\/([\w-]+)$/);
+  if (req.method === 'DELETE' && deleteTestMatch) {
+    const testId = deleteTestMatch[1];
+    const data = await readData();
+    data.tests = (data.tests || []).filter(t => t.id !== testId);
+    await writeData(data);
+    return send(res, 200, { success: true, tests: data.tests });
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/sources') {
     const filename = safeFilename(req.headers['x-filename'] || 'source.pdf');
     const pageRange = req.headers['x-page-range'] || '';
