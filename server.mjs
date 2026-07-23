@@ -283,8 +283,13 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
   let lastError = 'No valid API keys configured.';
 
   const geminiModels = [
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
+    'gemini-2.0-flash-thinking-exp-01-21',
+    'gemini-2.0-pro-exp-02-05',
+    'gemini-exp-1206',
     'gemini-1.5-flash',
     'gemini-1.5-pro',
     'gemini-1.5-flash-8b'
