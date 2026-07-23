@@ -260,7 +260,13 @@ function balanceMcqRatios(rawQuestions, targetCount) {
 }
 
 async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extractedText, statusCallback) {
-  const geminiKeys = (process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+  const rawGeminiKeys = (process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+  // Sort native AI Studio keys (starting with AIza) FIRST so they take precedence over GCP service account tokens
+  const geminiKeys = rawGeminiKeys.sort((a, b) => {
+    if (a.startsWith('AIza') && !b.startsWith('AIza')) return -1;
+    if (!a.startsWith('AIza') && b.startsWith('AIza')) return 1;
+    return 0;
+  });
   const openrouterKeys = (process.env.OPENROUTER_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
   const groqKeys = (process.env.GROQ_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
 
@@ -268,9 +274,8 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
 
   const geminiModels = [
     'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-pro-latest'
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
   ];
 
   const openrouterModels = [
@@ -285,23 +290,34 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
     'mixtral-8x7b-32768'
   ];
 
-  const systemPrompt = `You are a strict academic evaluator and surgical education question setter.
-Your task is to generate Multiple Choice Questions (MCQs) strictly grounded in the provided textbook context.
+  const systemPrompt = `You are a multidisciplinary surgical education team consisting of:
+- Senior General Surgery Professor & Senior Surgical Oncologist
+- Senior GI Surgeon & Senior HPB Surgeon
+- Senior Trauma Surgeon & Senior Surgical Educator
+- NEET-SS & INI-SS Question Setter
+- AIIMS MCh Entrance Faculty & FRCS Examiner
+- Medical Education Expert, Clinical Anatomist, Pathologist, Radiologist & Endoscopy Expert
 
-CRITICAL QUALITY RULES:
-1. ABSOLUTELY NO GENERIC PLACEHOLDERS: Do NOT use generic terms like "Condition X", "Table 1", "Grounded in surgical text", "Option A unavailable". Use actual disease names, surgical procedures, anatomical terms, and clinical facts explicitly found in the text.
-2. ABSOLUTE GROUNDING: Every question, option, explanation, and clinical pearl MUST be directly derived from the textbook content.
-3. MCQ Types (Ratio Balance): Categorize each MCQ into one of three types:
-   - "factual": Direct recall of facts, classifications, anatomy, or numbers.
-   - "conceptual": Rationale behind mechanisms, pathophysiology, or clinical logic.
-   - "applied": Clinical scenario, diagnostic dilemma, next best step, or operative decision.
-4. Output Schema: Return valid JSON matching this schema:
+Your sole responsibility is to create a publication-quality MCQ bank for SCALPEX directly from the uploaded textbook PDF.
+
+STRICT SOURCE RULE:
+- Use ONLY the uploaded textbook PDF (text, figures, tables, flowcharts, algorithms, CT/MRI scans, histology).
+- Do NOT use internet knowledge, other textbooks, or external images. Everything MUST originate from the uploaded pages.
+- 100% concept coverage: Read page by page, figure by figure, table by table.
+
+QUESTION & DISTRACTOR QUALITY:
+- Match the difficulty of INI-SS, NEET-SS, AIIMS MCh entrance, FRCS Part A, and ABSITE.
+- Questions should assess conceptual understanding, clinical judgement, decision-making, and integration.
+- Distractors must be clinically plausible, closely related, and based on common surgical misconceptions.
+
+JSON OUTPUT REQUIREMENT:
+Return valid JSON adhering strictly to this schema:
 {
   "questions": [
     {
-      "type": "factual | conceptual | applied",
-      "difficulty": "Moderate | Difficult | INI-SS",
-      "book": "Bailey & Love",
+      "type": "Clinical Scenario | Image Based | Operative Decision | Concept Integration | Investigation Interpretation | One Liner",
+      "difficulty": "Moderate | Difficult | INI-SS | Top 1%",
+      "book": "Bailey & Love's Short Practice of Surgery",
       "edition": "28th Edition",
       "chapter": "Chapter Name",
       "topic": "Clinical Topic",
@@ -309,21 +325,21 @@ CRITICAL QUALITY RULES:
       "page_number": "Page Number",
       "figure_number": "Figure Citation or N/A",
       "table_number": "Table Citation or N/A",
-      "question": "Strictly grounded question text...",
+      "question": "Complete grounded surgical question stem...",
       "option_a": "Option A...",
       "option_b": "Option B...",
       "option_c": "Option C...",
       "option_d": "Option D...",
       "correct_option": "A | B | C | D",
-      "explanation": "Pathophysiology and clinical rationale",
-      "why_a_wrong": "Why option A is wrong (or correct if answer)",
-      "why_b_wrong": "Why option B is wrong (or correct if answer)",
-      "why_c_wrong": "Why option C is wrong (or correct if answer)",
-      "why_d_wrong": "Why option D is wrong (or correct if answer)",
-      "clinical_pearl": "High yield takeaway pearl",
-      "exam_trap": "Distractor trick alert",
-      "memory_point": "Mnemonic or key takeaway",
-      "reference": "Exact citation reference"
+      "explanation": "Detailed pathophysiology, clinical reasoning, operative relevance, and imaging correlation.",
+      "why_a_wrong": "Specific explanation for Option A",
+      "why_b_wrong": "Specific explanation for Option B",
+      "why_c_wrong": "Specific explanation for Option C",
+      "why_d_wrong": "Specific explanation for Option D",
+      "clinical_pearl": "High-yield surgical teaching point",
+      "exam_trap": "INI-SS / NEET-SS exam distractor trick alert",
+      "memory_point": "Concise high-yield revision point or mnemonic",
+      "reference": "Exact citation: Book, Edition, Chapter, Pages, Figure/Table, Section"
     }
   ]
 }`;
@@ -335,7 +351,7 @@ CRITICAL QUALITY RULES:
 
   const fullPromptForTextModel = `${prompt}\n\n${fullTextContent}`;
 
-  // STEP 1: Gemini Direct (Text Payload First to minimize Token Usage & Prevent 429)
+  // STEP 1: Gemini Direct (Multimodal Payload with Both Base64 PDF Images & Extracted Text)
   if (geminiKeys.length > 0) {
     for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
       const apiKey = geminiKeys[keyIdx];
@@ -352,7 +368,8 @@ CRITICAL QUALITY RULES:
           const parts = [{ text: `${systemPrompt}\n\n${prompt}` }];
           if (hasExtractedText) {
             parts.push({ text: fullTextContent });
-          } else if (base64Pdf) {
+          }
+          if (base64Pdf) {
             parts.push({ inlineData: { mimeType: 'application/pdf', data: base64Pdf } });
           }
 
@@ -369,7 +386,7 @@ CRITICAL QUALITY RULES:
                 responseMimeType: 'application/json'
               }
             })
-          }, 30000);
+          }, 35000);
 
           if (res.ok) {
             const data = await res.json();
@@ -383,9 +400,10 @@ CRITICAL QUALITY RULES:
           } else if (res.status === 429) {
             const errText = await res.text();
             lastError = `Gemini ${model} (429 Rate Limit): ${errText.slice(0, 100)}`;
-            logSys('warn', `Gemini ${model}${keyTag} hit 429. Rotating key/provider instantly...`);
+            logSys('warn', `Gemini ${model}${keyTag} hit 429. Rotating to next key/model in 4s...`);
             apiProviderStatus.gemini.status = 'rate_limited';
             apiProviderStatus.gemini.error = `429 Rate Limited (${model})`;
+            await new Promise(r => setTimeout(r, 4000));
             continue;
           } else {
             const errText = await res.text();
