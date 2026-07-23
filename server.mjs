@@ -226,33 +226,43 @@ async function enforceApiCallPacing(minDelayMs = 4000) {
 function balanceMcqRatios(rawQuestions, targetCount) {
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return [];
 
-  const targetFactual = Math.max(1, Math.floor(targetCount * 0.40));
-  const targetConceptual = Math.max(1, Math.floor(targetCount * 0.40));
-  const targetApplied = Math.max(1, targetCount - (targetFactual + targetConceptual));
-
-  const factualList = [];
-  const conceptualList = [];
-  const appliedList = [];
-
-  for (const q of rawQuestions) {
-    const typeStr = String(q.type || '').toLowerCase().trim();
-    if (typeStr.includes('factual') || typeStr.includes('one liner') || typeStr.includes('recall')) {
-      factualList.push({ ...q, type: 'factual' });
-    } else if (typeStr.includes('applied') || typeStr.includes('clinical') || typeStr.includes('scenario') || typeStr.includes('management') || typeStr.includes('step')) {
-      appliedList.push({ ...q, type: 'applied' });
-    } else {
-      conceptualList.push({ ...q, type: 'conceptual' });
-    }
+  function normalizeType(typeStr) {
+    const s = String(typeStr || '').toLowerCase().trim();
+    if (s.includes('clinical') || s.includes('scenario') || s.includes('vignette') || s.includes('patient') || s.includes('presents')) return 'Clinical Scenario';
+    if (s.includes('operative') || s.includes('decision') || s.includes('surgical step') || s.includes('technique')) return 'Operative Decision Making';
+    if (s.includes('next step') || s.includes('best next')) return 'Best Next Step';
+    if (s.includes('management') || s.includes('appropriate management')) return 'Most Appropriate Management';
+    if (s.includes('diagnosis') || s.includes('most likely')) return 'Most Likely Diagnosis';
+    if (s.includes('image') || s.includes('ct') || s.includes('mri') || s.includes('radiology') || s.includes('histo') || s.includes('figure') || s.includes('table') || s.includes('diagram')) return 'Image Based';
+    if (s.includes('cluster') || s.includes('case cluster') || s.includes('linked')) return 'Case Cluster';
+    if (s.includes('assertion') || s.includes('reason')) return 'Assertion Reason';
+    return 'One Liner';
   }
 
+  const normalized = rawQuestions.map(q => ({
+    ...q,
+    type: normalizeType(q.type)
+  }));
+
+  const clinicalList = normalized.filter(q => q.type === 'Clinical Scenario');
+  const operativeList = normalized.filter(q => ['Operative Decision Making', 'Best Next Step', 'Most Appropriate Management', 'Most Likely Diagnosis'].includes(q.type));
+  const imageList = normalized.filter(q => ['Image Based', 'Case Cluster', 'Assertion Reason'].includes(q.type));
+  const oneLinerList = normalized.filter(q => q.type === 'One Liner');
+
+  const maxOneLiners = Math.max(1, Math.floor(targetCount * 0.10));
+  const targetClinical = Math.max(1, Math.floor(targetCount * 0.40));
+  const targetOperative = Math.max(1, Math.floor(targetCount * 0.30));
+  const targetImage = Math.max(1, targetCount - (maxOneLiners + targetClinical + targetOperative));
+
   const selected = [];
-  selected.push(...factualList.slice(0, targetFactual));
-  selected.push(...conceptualList.slice(0, targetConceptual));
-  selected.push(...appliedList.slice(0, targetApplied));
+  selected.push(...clinicalList.slice(0, targetClinical));
+  selected.push(...operativeList.slice(0, targetOperative));
+  selected.push(...imageList.slice(0, targetImage));
+  selected.push(...oneLinerList.slice(0, maxOneLiners));
 
   if (selected.length < targetCount) {
-    const selectedTextSet = new Set(selected.map(q => q.question));
-    const remaining = rawQuestions.filter(q => !selectedTextSet.has(q.question));
+    const selectedSet = new Set(selected.map(q => q.question));
+    const remaining = normalized.filter(q => !selectedSet.has(q.question));
     selected.push(...remaining.slice(0, targetCount - selected.length));
   }
 
@@ -267,8 +277,8 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
     if (!a.startsWith('AIza') && b.startsWith('AIza')) return 1;
     return 0;
   });
-  const openrouterKeys = (process.env.OPENROUTER_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
-  const groqKeys = (process.env.GROQ_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+  const openrouterKeys = (process.env.OPENROUTER_API_KEY || '').split(',').map(k => k.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+  const groqKeys = (process.env.GROQ_API_KEY || '').split(',').map(k => k.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
 
   let lastError = 'No valid API keys configured.';
 
@@ -279,10 +289,10 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
   ];
 
   const openrouterModels = [
+    'meta-llama/llama-3.3-70b-instruct',
     'google/gemini-2.0-flash-001',
     'openai/gpt-4o-mini',
-    'deepseek/deepseek-chat',
-    'anthropic/claude-3.5-haiku'
+    'deepseek/deepseek-chat'
   ];
 
   const groqModels = [
@@ -290,58 +300,73 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
     'mixtral-8x7b-32768'
   ];
 
-  const systemPrompt = `You are a multidisciplinary surgical education team consisting of:
+  const systemPrompt = `You are a world-class multidisciplinary surgical education board consisting of:
 - Senior General Surgery Professor & Senior Surgical Oncologist
 - Senior GI Surgeon & Senior HPB Surgeon
 - Senior Trauma Surgeon & Senior Surgical Educator
-- NEET-SS & INI-SS Question Setter
-- AIIMS MCh Entrance Faculty & FRCS Examiner
-- Medical Education Expert, Clinical Anatomist, Pathologist, Radiologist & Endoscopy Expert
+- NEET-SS & INI-SS Question Setter (AIIMS MCh / FRCS Examiner)
+- Clinical Anatomist, Pathologist, Radiologist & Endoscopy Expert
 
-Your sole responsibility is to create a publication-quality MCQ bank for SCALPEX directly from the uploaded textbook PDF.
+YOUR SOLE RESPONSIBILITY:
+Create a publication-quality, high-difficulty MCQ bank for SCALPEX directly from the uploaded textbook PDF.
 
-STRICT SOURCE RULE:
-- Use ONLY the uploaded textbook PDF (text, figures, tables, flowcharts, algorithms, CT/MRI scans, histology).
-- Do NOT use internet knowledge, other textbooks, or external images. Everything MUST originate from the uploaded pages.
-- 100% concept coverage: Read page by page, figure by figure, table by table.
+STRICT MANDATORY RULES:
+1. STRICT PDF GROUNDING:
+   - Use ONLY the facts, figures, tables, flowcharts, classifications, and clinical guidelines explicitly stated in the provided text.
+   - NO external knowledge, NO internet facts, NO unverified assumptions.
+2. DIFFICULTY & COMPLEXITY (NEET-SS / INI-SS / AIIMS MCh Level):
+   - At least 85% of questions MUST be complex Clinical Scenarios, Operative Decisions, Best Next Steps, Most Likely Diagnoses, or Image/Table-Based questions.
+   - Limit basic "One Liner" recall questions to at most 10%.
+   - Every question must test deep conceptual understanding, pathophysiological rationale, diagnostic dilemmas, or intraoperative decision-making.
+3. QUESTION TYPE CATEGORIES:
+   Assign each question one of these exact types matching SCALPEX UI:
+   - "Clinical Scenario"
+   - "Operative Decision Making"
+   - "Best Next Step"
+   - "Most Appropriate Management"
+   - "Most Likely Diagnosis"
+   - "Image Based"
+   - "Assertion Reason"
+   - "Case Cluster"
+   - "One Liner"
 
-QUESTION & DISTRACTOR QUALITY:
-- Match the difficulty of INI-SS, NEET-SS, AIIMS MCh entrance, FRCS Part A, and ABSITE.
-- Questions should assess conceptual understanding, clinical judgement, decision-making, and integration.
-- Distractors must be clinically plausible, closely related, and based on common surgical misconceptions.
+4. DISTRACTOR REQUIREMENTS:
+   - All 4 options (option_a, option_b, option_c, option_d) must be plausible, distinct surgical procedures or diagnostic steps mentioned in the text.
+   - Provide detailed option-by-option eliminations in why_a_wrong, why_b_wrong, why_c_wrong, why_d_wrong.
+
+FEW-SHOT PUBLICATION EXAMPLE:
+{
+  "type": "Clinical Scenario",
+  "difficulty": "INI-SS",
+  "book": "Bailey & Love's Short Practice of Surgery",
+  "edition": "28th Edition",
+  "chapter": "Chapter 60 - Tropical Infections",
+  "topic": "Amoebic Liver Abscess",
+  "subtopic": "Surgical Indications for Aspiration",
+  "page_number": "Page 1042",
+  "figure_number": "Figure 60.4",
+  "table_number": "Table 60.2",
+  "question": "A 42-year-old male with a history of dysentery presents with high-grade fever, right upper quadrant pain, and tender hepatomegaly. Ultrasound reveals a 9 cm hypoechoic lesion in the right lobe of the liver with non-visualization of the subdiaphragmatic space and impending rupture. Serology confirms amoebiasis. Despite 72 hours of IV metronidazole, he remains febrile with persistent pain. What is the most appropriate next step in management?",
+  "option_a": "Continue IV metronidazole alone for an additional 5 days",
+  "option_b": "Percutaneous ultrasound-guided needle aspiration under cover of metronidazole",
+  "option_c": "Immediate open transperitoneal surgical drainage",
+  "option_d": "Switch to oral tinidazole and discharge with outpatient follow-up",
+  "correct_option": "B",
+  "explanation": "According to textbook guidelines, amoebic liver abscesses >8-10 cm, those with high risk of rupture (thin rim of liver parenchyma <10 mm), or patients failing medical therapy with metronidazole after 48-72 hours require percutaneous needle aspiration under ultrasound guidance to prevent intraperitoneal spillage.",
+  "why_a_wrong": "Medical therapy alone with metronidazole has failed after 72 hours and the abscess is large (>8 cm) with impending rupture, making aspiration mandatory.",
+  "why_b_wrong": "Option B is the CORRECT answer. Ultrasound-guided aspiration decompresses the cavity safely while maintaining metronidazole tissue levels.",
+  "why_c_wrong": "Open surgical drainage is reserved only for frank free rupture into the peritoneal cavity or secondary bacterial contamination unresponsive to percutaneous drainage.",
+  "why_d_wrong": "Switching to oral therapy and discharging an un-decompressed 9 cm abscess with impending rupture is contraindicated due to fatal peritonitis risk.",
+  "clinical_pearl": "Ultrasound-guided aspiration in amoebic liver abscess is indicated if abscess >8 cm, left lobe abscess (risk of pericardial extension), or lack of clinical response to metronidazole within 72 hours.",
+  "exam_trap": "Candidates often prematurely proceed to open surgery for large abscesses; percutaneous aspiration/catheter drainage is the first-line intervention before open surgery.",
+  "memory_point": "Amoebic Abscess Aspiration Rule: >8 cm, Left lobe, Failed 72h Metronidazole, or Impending Rupture.",
+  "reference": "Bailey & Love, 28th Ed, Chapter 60, p. 1042, Table 60.2 (Indications for Aspiration in Amoebic Liver Abscess)"
+}
 
 JSON OUTPUT REQUIREMENT:
 Return valid JSON adhering strictly to this schema:
 {
-  "questions": [
-    {
-      "type": "Clinical Scenario | Image Based | Operative Decision | Concept Integration | Investigation Interpretation | One Liner",
-      "difficulty": "Moderate | Difficult | INI-SS | Top 1%",
-      "book": "Bailey & Love's Short Practice of Surgery",
-      "edition": "28th Edition",
-      "chapter": "Chapter Name",
-      "topic": "Clinical Topic",
-      "subtopic": "Specific Subtopic",
-      "page_number": "Page Number",
-      "figure_number": "Figure Citation or N/A",
-      "table_number": "Table Citation or N/A",
-      "question": "Complete grounded surgical question stem...",
-      "option_a": "Option A...",
-      "option_b": "Option B...",
-      "option_c": "Option C...",
-      "option_d": "Option D...",
-      "correct_option": "A | B | C | D",
-      "explanation": "Detailed pathophysiology, clinical reasoning, operative relevance, and imaging correlation.",
-      "why_a_wrong": "Specific explanation for Option A",
-      "why_b_wrong": "Specific explanation for Option B",
-      "why_c_wrong": "Specific explanation for Option C",
-      "why_d_wrong": "Specific explanation for Option D",
-      "clinical_pearl": "High-yield surgical teaching point",
-      "exam_trap": "INI-SS / NEET-SS exam distractor trick alert",
-      "memory_point": "Concise high-yield revision point or mnemonic",
-      "reference": "Exact citation: Book, Edition, Chapter, Pages, Figure/Table, Section"
-    }
-  ]
+  "questions": [ ... ]
 }`;
 
   const hasExtractedText = extractedText && extractedText.trim().length > 100;
