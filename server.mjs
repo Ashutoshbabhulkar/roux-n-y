@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { PDFDocument } from 'pdf-lib';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-
 async function extractTextFromPdfBuffer(pdfBuffer) {
   if (!pdfBuffer || !pdfBuffer.length) return '';
   try {
@@ -43,12 +42,12 @@ const apiProviderStatus = {
   openrouter: {
     name: 'OpenRouter',
     status: (process.env.OPENROUTER_API_KEY || '').trim() ? 'active' : 'unconfigured',
-    error: (process.env.OPENROUTER_API_KEY || '').trim() ? null : '401 Key Unconfigured in Render',
+    error: (process.env.OPENROUTER_API_KEY || '').trim() ? null : 'Key Unconfigured',
     quotaResetAt: null,
     lastUsedAt: null
   },
   groq: {
-    name: 'Groq Ultra-Fast (Llama 3.3 70B)',
+    name: 'Groq (Llama 3.3)',
     status: (process.env.GROQ_API_KEY || '').trim() ? 'active' : 'unconfigured',
     error: (process.env.GROQ_API_KEY || '').trim() ? null : 'Key Unconfigured',
     quotaResetAt: null,
@@ -199,7 +198,7 @@ async function updateSourceProgressDetails(sourceId, details) {
   }
 }
 
-async function fetchWithHardTimeout(url, options, timeoutMs = 15000) {
+async function fetchWithHardTimeout(url, options, timeoutMs = 25000) {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort(new Error(`API request timed out after ${timeoutMs / 1000}s`));
@@ -212,6 +211,52 @@ async function fetchWithHardTimeout(url, options, timeoutMs = 15000) {
     clearTimeout(timer);
     throw err;
   }
+}
+
+let lastApiCallTime = 0;
+async function enforceApiCallPacing(minDelayMs = 4000) {
+  const now = Date.now();
+  const elapsed = now - lastApiCallTime;
+  if (elapsed < minDelayMs) {
+    await new Promise(r => setTimeout(r, minDelayMs - elapsed));
+  }
+  lastApiCallTime = Date.now();
+}
+
+function balanceMcqRatios(rawQuestions, targetCount) {
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return [];
+
+  const targetFactual = Math.max(1, Math.floor(targetCount * 0.40));
+  const targetConceptual = Math.max(1, Math.floor(targetCount * 0.40));
+  const targetApplied = Math.max(1, targetCount - (targetFactual + targetConceptual));
+
+  const factualList = [];
+  const conceptualList = [];
+  const appliedList = [];
+
+  for (const q of rawQuestions) {
+    const typeStr = String(q.type || '').toLowerCase().trim();
+    if (typeStr.includes('factual') || typeStr.includes('one liner') || typeStr.includes('recall')) {
+      factualList.push({ ...q, type: 'factual' });
+    } else if (typeStr.includes('applied') || typeStr.includes('clinical') || typeStr.includes('scenario') || typeStr.includes('management') || typeStr.includes('step')) {
+      appliedList.push({ ...q, type: 'applied' });
+    } else {
+      conceptualList.push({ ...q, type: 'conceptual' });
+    }
+  }
+
+  const selected = [];
+  selected.push(...factualList.slice(0, targetFactual));
+  selected.push(...conceptualList.slice(0, targetConceptual));
+  selected.push(...appliedList.slice(0, targetApplied));
+
+  if (selected.length < targetCount) {
+    const selectedTextSet = new Set(selected.map(q => q.question));
+    const remaining = rawQuestions.filter(q => !selectedTextSet.has(q.question));
+    selected.push(...remaining.slice(0, targetCount - selected.length));
+  }
+
+  return selected.slice(0, targetCount);
 }
 
 async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extractedText, statusCallback) {
@@ -230,6 +275,7 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
   const openrouterModels = [
     'google/gemini-2.0-flash-001',
     'openai/gpt-4o-mini',
+    'deepseek/deepseek-chat',
     'anthropic/claude-3.5-haiku'
   ];
 
@@ -238,166 +284,190 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
     'mixtral-8x7b-32768'
   ];
 
-  const geminiSchemaConfig = {
-    responseMimeType: 'application/json',
-    responseSchema: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          type: { "type": "STRING", "description": "Type of surgical MCQ: One Liner, Clinical Scenario, Image Based, Case Cluster, Assertion Reason, Best Next Step, Most Appropriate Management, Most Likely Diagnosis, Operative Decision Making" },
-          difficulty: { "type": "STRING", "description": "Difficulty: Moderate, Difficult, INI-SS, AIIMS MCh, Top 1%" },
-          book: { "type": "STRING", "description": "Book name, e.g. Bailey & Love" },
-          edition: { "type": "STRING", "description": "Edition name, e.g. 28th Edition" },
-          chapter: { "type": "STRING", "description": "Chapter name and number" },
-          topic: { "type": "STRING", "description": "Broad clinical topic" },
-          subtopic: { "type": "STRING", "description": "Specific clinical subtopic" },
-          page_number: { "type": "STRING", "description": "Direct page number from the PDF" },
-          figure_number: { "type": "STRING", "description": "Figure citation or N/A" },
-          table_number: { "type": "STRING", "description": "Table citation or N/A" },
-          question: { "type": "STRING", "description": "Strictly grounded MCQ question text" },
-          option_a: { "type": "STRING", "description": "Option A text" },
-          option_b: { "type": "STRING", "description": "Option B text" },
-          option_c: { "type": "STRING", "description": "Option C text" },
-          option_d: { "type": "STRING", "description": "Option D text" },
-          correct_option: { "type": "STRING", "description": "Single letter: A, B, C, or D" },
-          explanation: { "type": "STRING", "description": "Core pathophysiology explanation of the correct choice" },
-          why_a_wrong: { "type": "STRING", "description": "Why option A is wrong (or correct if it is the answer)" },
-          why_b_wrong: { "type": "STRING", "description": "Why option B is wrong (or correct if it is the answer)" },
-          why_c_wrong: { "type": "STRING", "description": "Why option C is wrong (or correct if it is the answer)" },
-          why_d_wrong: { "type": "STRING", "description": "Why option D is wrong (or correct if it is the answer)" },
-          clinical_pearl: { "type": "STRING", "description": "High yield takeaway pearl" },
-          exam_trap: { "type": "STRING", "description": "Common distractor trick alerts" },
-          memory_point: { "type": "STRING", "description": "Mnemonic or easy fact to remember" },
-          reference: { "type": "STRING", "description": "Exact citation reference (e.g. Bailey & Love, 28th Edition, Chapter 74, Page 1224)" }
-        },
-        required: [
-          "type", "difficulty", "book", "chapter", "topic", "question",
-          "option_a", "option_b", "option_c", "option_d", "correct_option",
-          "explanation", "why_a_wrong", "why_b_wrong", "why_c_wrong", "why_d_wrong",
-          "clinical_pearl", "exam_trap", "memory_point", "reference"
-        ]
-      }
-    }
-  };
+  const systemPrompt = `You are a strict academic evaluator and surgical education question setter.
+Your task is to generate Multiple Choice Questions (MCQs) strictly grounded in the provided textbook context.
 
-  const fullPromptForTextModel = extractedText && extractedText.length > 50
-    ? `${prompt}\n\n--- EXACT EXTRACTED TEXTBOOK CHAPTER PAGES FOR GROUNDING ---\n${extractedText.slice(0, 16000)}\n--- END TEXTBOOK CONTENT ---`
+CRITICAL QUALITY RULES:
+1. ABSOLUTELY NO GENERIC PLACEHOLDERS: Do NOT use generic terms like "Condition X", "Table 1", "Grounded in surgical text", "Option A unavailable". Use actual disease names, surgical procedures, anatomical terms, and clinical facts explicitly found in the text.
+2. ABSOLUTE GROUNDING: Every question, option, explanation, and clinical pearl MUST be directly derived from the textbook content.
+3. MCQ Types (Ratio Balance): Categorize each MCQ into one of three types:
+   - "factual": Direct recall of facts, classifications, anatomy, or numbers.
+   - "conceptual": Rationale behind mechanisms, pathophysiology, or clinical logic.
+   - "applied": Clinical scenario, diagnostic dilemma, next best step, or operative decision.
+4. Output Schema: Return valid JSON matching this schema:
+{
+  "questions": [
+    {
+      "type": "factual | conceptual | applied",
+      "difficulty": "Moderate | Difficult | INI-SS",
+      "book": "Bailey & Love",
+      "edition": "28th Edition",
+      "chapter": "Chapter Name",
+      "topic": "Clinical Topic",
+      "subtopic": "Specific Subtopic",
+      "page_number": "Page Number",
+      "figure_number": "Figure Citation or N/A",
+      "table_number": "Table Citation or N/A",
+      "question": "Strictly grounded question text...",
+      "option_a": "Option A...",
+      "option_b": "Option B...",
+      "option_c": "Option C...",
+      "option_d": "Option D...",
+      "correct_option": "A | B | C | D",
+      "explanation": "Pathophysiology and clinical rationale",
+      "why_a_wrong": "Why option A is wrong (or correct if answer)",
+      "why_b_wrong": "Why option B is wrong (or correct if answer)",
+      "why_c_wrong": "Why option C is wrong (or correct if answer)",
+      "why_d_wrong": "Why option D is wrong (or correct if answer)",
+      "clinical_pearl": "High yield takeaway pearl",
+      "exam_trap": "Distractor trick alert",
+      "memory_point": "Mnemonic or key takeaway",
+      "reference": "Exact citation reference"
+    }
+  ]
+}`;
+
+  const hasExtractedText = extractedText && extractedText.trim().length > 100;
+  const fullTextContent = hasExtractedText
+    ? `--- EXTRACTED TEXTBOOK CHAPTER PAGES FOR GROUNDING ---\n${extractedText.slice(0, 24000)}\n--- END TEXTBOOK CONTENT ---`
     : prompt;
 
-  // Run up to 2 passes across all configured keys & models
-  for (let pass = 1; pass <= 2; pass++) {
-    // 1. Direct Gemini API Keys (Only if not rate limited or if reset timer passed)
-    const now = Date.now();
-    if (!apiProviderStatus.gemini.quotaResetAt || now >= apiProviderStatus.gemini.quotaResetAt) {
-      for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
-        const apiKey = geminiKeys[keyIdx];
-        for (const model of geminiModels) {
-          const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
-          
-          for (let attempt = 1; attempt <= 4; attempt++) {
-            try {
-              if (statusCallback) {
-                statusCallback(`Calling Gemini Direct (${model}${keyTag}, attempt ${attempt}/4)...`, model);
-              }
-              logSys('info', `Calling Gemini Direct (${model}${keyTag}, attempt ${attempt}/4)...`);
-              
-              const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-              const res = await fetchWithHardTimeout(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [
-                        { text: prompt },
-                        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
-                      ]
-                    }
-                  ],
-                  generationConfig: geminiSchemaConfig
-                })
-              }, 25000);
+  const fullPromptForTextModel = `${prompt}\n\n${fullTextContent}`;
 
-              if (res.ok) {
-                const data = await res.json();
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (text) {
-                  apiProviderStatus.gemini.status = 'active';
-                  apiProviderStatus.gemini.error = null;
-                  apiProviderStatus.gemini.quotaResetAt = null;
-                  logSys('info', `Successfully generated response with Gemini ${model}`);
-                  return text;
-                }
-              } else if (res.status === 429) {
-                const errText = await res.text();
-                lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
-                logSys('warn', lastError);
+  // STEP 1: Gemini Direct (Text Payload First to minimize Token Usage & Prevent 429)
+  if (geminiKeys.length > 0) {
+    for (let keyIdx = 0; keyIdx < geminiKeys.length; keyIdx++) {
+      const apiKey = geminiKeys[keyIdx];
+      const keyTag = geminiKeys.length > 1 ? ` (Key ${keyIdx + 1})` : '';
 
-                const isDailyQuotaExceeded = errText.toLowerCase().includes('quota') && 
-                  (errText.toLowerCase().includes('billing') || errText.toLowerCase().includes('parent') || errText.toLowerCase().includes('project') || errText.toLowerCase().includes('exceeded'));
-
-                if (isDailyQuotaExceeded) {
-                  apiProviderStatus.gemini.status = 'error';
-                  apiProviderStatus.gemini.error = '429 Daily Quota Exceeded (Check Google AI Studio Billing)';
-                  apiProviderStatus.gemini.quotaResetAt = Date.now() + 3600 * 1000; // 1 hour lockout
-                  logSys('warn', `Gemini daily quota/billing limit reached. Aborting retries for this key.`);
-                  if (statusCallback) statusCallback(`Gemini Daily Quota Exceeded. Please upgrade billing or check key.`, model);
-                  break; // Stop retrying, fail over/throw immediately
-                }
-
-                let waitMs = 15000;
-                try {
-                  const errJson = JSON.parse(errText);
-                  const retryObj = errJson?.error?.details?.find(d => d['@type']?.includes('RetryInfo'));
-                  if (retryObj && retryObj.retryDelay) {
-                    const sec = parseFloat(retryObj.retryDelay.replace('s', ''));
-                    if (!isNaN(sec)) {
-                      waitMs = Math.ceil((sec + 3) * 1000);
-                    }
-                  }
-                } catch (_) {}
-
-                const waitSecStr = (waitMs / 1000).toFixed(0);
-                
-                apiProviderStatus.gemini.status = 'rate_limited';
-                apiProviderStatus.gemini.error = `429 Rate Limited (${model})`;
-                apiProviderStatus.gemini.quotaResetAt = Date.now() + waitMs;
-
-                if (statusCallback) statusCallback(`Rate limited on ${model}. Waiting ${waitSecStr}s for quota reset...`, model);
-                logSys('warn', `Rate limited on ${model}. Waiting ${waitSecStr}s for RPM quota reset...`);
-                
-                await new Promise(r => setTimeout(r, waitMs));
-                continue;
-              } else if (res.status === 503) {
-                lastError = `503 Service Unavailable on ${model}`;
-                logSys('warn', lastError);
-                if (statusCallback) statusCallback(`503 High demand on ${model}. Waiting 6s...`, model);
-                await new Promise(r => setTimeout(r, 6000));
-                continue;
-              } else {
-                const errText = await res.text();
-                lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 150)}`;
-                logSys('warn', lastError);
-                break; // Try next model/key
-              }
-            } catch (err) {
-              lastError = `Gemini fetch error on ${model} (attempt ${attempt}/4): ${err.message}`;
-              logSys('warn', lastError);
-              if (attempt < 4) await new Promise(r => setTimeout(r, 5000));
-            }
+      for (const model of geminiModels) {
+        try {
+          await enforceApiCallPacing(4000);
+          if (statusCallback) {
+            statusCallback(`Calling Gemini Direct (${model}${keyTag})...`, model);
           }
+          logSys('info', `Calling Gemini Direct (${model}${keyTag})...`);
+
+          const parts = [{ text: `${systemPrompt}\n\n${prompt}` }];
+          if (hasExtractedText) {
+            parts.push({ text: fullTextContent });
+          } else if (base64Pdf) {
+            parts.push({ inlineData: { mimeType: 'application/pdf', data: base64Pdf } });
+          }
+
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+          const res = await fetchWithHardTimeout(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey
+            },
+            body: JSON.stringify({
+              contents: [{ parts }],
+              generationConfig: {
+                responseMimeType: 'application/json'
+              }
+            })
+          }, 30000);
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              apiProviderStatus.gemini.status = 'active';
+              apiProviderStatus.gemini.error = null;
+              logSys('info', `Successfully generated response with Gemini Direct (${model})`);
+              return text;
+            }
+          } else if (res.status === 429) {
+            const errText = await res.text();
+            lastError = `Gemini ${model} (429 Rate Limit): ${errText.slice(0, 100)}`;
+            logSys('warn', `Gemini ${model}${keyTag} hit 429. Rotating key/provider instantly...`);
+            apiProviderStatus.gemini.status = 'rate_limited';
+            apiProviderStatus.gemini.error = `429 Rate Limited (${model})`;
+            continue;
+          } else {
+            const errText = await res.text();
+            lastError = `Gemini ${model} (${res.status}): ${errText.slice(0, 100)}`;
+            logSys('warn', lastError);
+            continue;
+          }
+        } catch (err) {
+          lastError = `Gemini error on ${model}: ${err.message}`;
+          logSys('warn', lastError);
+          continue;
         }
       }
     }
+  }
 
-    // 2. OpenRouter API
-    for (const apiKey of openrouterKeys) {
+  // STEP 2: Groq Failover Backup Layer
+  if (groqKeys.length > 0) {
+    logSys('info', 'Routing request to Groq Backup Provider...');
+    for (let keyIdx = 0; keyIdx < groqKeys.length; keyIdx++) {
+      const apiKey = groqKeys[keyIdx];
+      for (const model of groqModels) {
+        try {
+          await enforceApiCallPacing(3000);
+          if (statusCallback) statusCallback(`Calling Groq Backup (${model})...`, model);
+          logSys('info', `Calling Groq Backup (${model})...`);
+
+          const res = await fetchWithHardTimeout('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: fullPromptForTextModel }
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.15
+            })
+          }, 30000);
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.choices?.[0]?.message?.content;
+            if (text) {
+              apiProviderStatus.groq.status = 'active';
+              apiProviderStatus.groq.error = null;
+              logSys('info', `Successfully generated response via Groq (${model})`);
+              return text;
+            }
+          } else {
+            const errText = await res.text();
+            lastError = `Groq ${model} (${res.status}): ${errText.slice(0, 100)}`;
+            logSys('warn', lastError);
+            if (res.status === 401) {
+              apiProviderStatus.groq.status = 'unconfigured';
+              apiProviderStatus.groq.error = '401 Invalid Key';
+            }
+            continue;
+          }
+        } catch (err) {
+          lastError = `Groq error on ${model}: ${err.message}`;
+          logSys('warn', lastError);
+          continue;
+        }
+      }
+    }
+  }
+
+  // STEP 3: OpenRouter Failover Backup Layer
+  if (openrouterKeys.length > 0) {
+    logSys('info', 'Routing request to OpenRouter Backup Provider...');
+    for (let keyIdx = 0; keyIdx < openrouterKeys.length; keyIdx++) {
+      const apiKey = openrouterKeys[keyIdx];
       for (const model of openrouterModels) {
         try {
-          if (statusCallback) statusCallback(`Calling OpenRouter (${model.split('/')[1] || model})...`, model);
-          logSys('info', `Calling OpenRouter (${model})...`);
-          
+          await enforceApiCallPacing(3000);
+          if (statusCallback) statusCallback(`Calling OpenRouter Backup (${model.split('/')[1] || model})...`, model);
+          logSys('info', `Calling OpenRouter Backup (${model})...`);
+
           const res = await fetchWithHardTimeout('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -409,19 +479,13 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
             body: JSON.stringify({
               model,
               messages: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: prompt },
-                    {
-                      type: 'image_url',
-                      image_url: { url: `data:application/pdf;base64,${base64Pdf}` }
-                    }
-                  ]
-                }
-              ]
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: fullPromptForTextModel }
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.15
             })
-          }, 20000);
+          }, 30000);
 
           if (res.ok) {
             const data = await res.json();
@@ -449,14 +513,8 @@ async function callMultiProviderApiWithInstantFallback(prompt, base64Pdf, extrac
         }
       }
     }
-
-    if (pass === 1) {
-      if (statusCallback) statusCallback('Rate limits reached across models. Brief 6s pause before retrying...', 'rate-limit');
-      await new Promise(r => setTimeout(r, 6000));
-    }
   }
 
-  throw new Error(`All grounded AI providers failed. Last error: ${lastError}`);
 }
 
 async function runProcessingPipeline(sourceId) {
@@ -473,15 +531,13 @@ async function runProcessingPipeline(sourceId) {
     const srcDoc = await PDFDocument.load(fileBytes);
     const totalDocPages = srcDoc.getPageCount();
     
-    // Determine overall page range
     const { start: overallStart, end: overallEnd } = parsePageRange(source.pageRange, totalDocPages);
     
     const hasAnyKeys = !!process.env.GEMINI_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GROQ_API_KEY;
     if (!hasAnyKeys) {
-      throw new Error('No API keys configured. Please add GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY.');
+      throw new Error('No API keys configured. Please add GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY to your environment or .env file.');
     }
     
-    // Batch into chunks of 3 pages per chunk to use resources responsibly and prevent quota exhaustion
     const CHUNK_SIZE = 3;
     const chunks = [];
     for (let cStart = overallStart; cStart <= overallEnd; cStart += CHUNK_SIZE) {
@@ -502,19 +558,19 @@ async function runProcessingPipeline(sourceId) {
       questionsGeneratedCount: 0,
       processedPages: 0,
       totalPages: totalSelectionPages,
-      activeModel: 'multi-provider'
+      activeModel: 'gemini-2.0-flash'
     });
     
     console.log(`[Roux N Y] Processing source ${source.filename} (${overallStart}-${overallEnd}) in ${chunks.length} chunk(s)...`);
     
-    const allGeneratedQuestions = [];
+    const rawCollectedQuestions = [];
     
     for (let idx = 0; idx < chunks.length; idx++) {
       if (idx > 0) {
         await updateSourceProgressDetails(sourceId, {
-          statusMessage: `Pausing 6s between chunks to optimize quota...`
+          statusMessage: `Pausing 4s between chunks to maintain clean quota bounds...`
         });
-        await new Promise(r => setTimeout(r, 6000));
+        await new Promise(r => setTimeout(r, 4000));
       }
       
       const chunk = chunks[idx];
@@ -526,33 +582,18 @@ async function runProcessingPipeline(sourceId) {
         currentChunk: idx + 1,
         totalChunks: chunks.length,
         chunkPageRange: `${chunk.start}-${chunk.end}`,
-        statusMessage: `Slicing pages ${chunk.start}–${chunk.end} (Chunk ${idx + 1}/${chunks.length})...`,
-        questionsGeneratedCount: allGeneratedQuestions.length,
+        statusMessage: `Extracting & generating MCQs for pages ${chunk.start}–${chunk.end} (Chunk ${idx + 1}/${chunks.length})...`,
+        questionsGeneratedCount: rawCollectedQuestions.length,
         processedPages: processedPagesCount
       });
       
       const sliceResult = await slicePdf(fileBytes, `${chunk.start}-${chunk.end}`);
       const sliceBuffer = Buffer.from(sliceResult.bytes);
       const base64Pdf = sliceBuffer.toString('base64');
-      
       const extractedText = await extractTextFromPdfBuffer(sliceBuffer);
 
       const chunkPageCount = (chunk.end - chunk.start + 1);
-      const targetMcqCount = Math.max(4, chunkPageCount * 4);
-      
-      const prompt = `You are an elite surgical education question setter for NEET-SS / INI-SS examinations.
-Your objective is to generate exactly ${targetMcqCount} publication-ready multiple choice questions (MCQs) (approximately 4 to 5 distinct, high-yield questions per page) strictly grounded in the surgical textbook content provided.
-
-CRITICAL QUALITY RULES:
-1. ABSOLUTELY NO GENERIC PLACEHOLDERS: Do NOT use generic terms like "Condition X", "Table 1", "Grounded in surgical text", "Option A unavailable", "Treatment Y". You MUST use actual disease names, surgical procedures, anatomical terms, and clinical facts explicitly found in the text.
-2. ABSOLUTE GROUNDING: Every question, option, explanation, and clinical pearl MUST be directly derived from the textbook content.
-3. OPTIONS: Provide 4 distinct, meaningful options (option_a, option_b, option_c, option_d) containing actual surgical procedures, diagnostic criteria, or anatomical choices.
-4. EXPLANATION & CLINICAL PEARL:
-   - "explanation": Provide a comprehensive 2-3 sentence pathophysiology and clinical rationale explaining why the correct choice is right and others are wrong.
-   - "clinical_pearl": Provide a high-yield, exam-focused takeaway summarizing key surgical guidelines or diagnostic rules from the text.
-   - "reference": Cite exact book, chapter, and page/figure numbers (e.g. "Bailey & Love, 28th Edition, Chapter 6, p. ${chunk.start}").
-5. Conform strictly to JSON schema format.`;
-
+      const prompt = `Generate exactly ${targetMcqCount} publication-ready surgical multiple-choice questions grounded exclusively in the provided text content for pages ${chunk.start}–${chunk.end}. Ensure a balance of factual (40%), conceptual (40%), and applied (20%) question types.`;
       let candidateText;
       for (let chunkAttempt = 1; chunkAttempt <= 3; chunkAttempt++) {
         try {
@@ -564,7 +605,7 @@ CRITICAL QUALITY RULES:
               updateSourceProgressDetails(sourceId, {
                 statusMessage: `[Chunk ${idx + 1}/${chunks.length} - p.${chunk.start}–${chunk.end}] ${msg}`,
                 activeModel: model
-              });
+              }).catch(e => console.error('Progress update error:', e));
             }
           );
           break;
@@ -572,24 +613,26 @@ CRITICAL QUALITY RULES:
           console.warn(`[Roux N Y] Chunk ${idx + 1}/${chunks.length} attempt ${chunkAttempt} failed: ${chunkErr.message}`);
           if (chunkAttempt < 3) {
             await updateSourceProgressDetails(sourceId, {
-              statusMessage: `Chunk ${idx + 1}/${chunks.length} attempt ${chunkAttempt} failed. Retrying...`
+              statusMessage: `Chunk ${idx + 1}/${chunks.length} retry in 10s...`
             });
-            await new Promise(r => setTimeout(r, 5000));
+            await new Promise(r => setTimeout(r, 10000));
           } else {
             throw chunkErr;
           }
         }
       }
-      
+
       if (candidateText) {
         let cleanText = candidateText.trim();
         cleanText = cleanText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
         try {
-          const parsed = JSON.parse(cleanText);
-          if (Array.isArray(parsed)) {
-            allGeneratedQuestions.push(...parsed);
-          } else if (parsed && Array.isArray(parsed.questions)) {
-            allGeneratedQuestions.push(...parsed.questions);
+          let parsed = JSON.parse(cleanText);
+          let questionList = Array.isArray(parsed)
+            ? parsed
+            : (parsed.questions || parsed[Object.keys(parsed).find(k => Array.isArray(parsed[k]))] || []);
+
+          if (Array.isArray(questionList)) {
+            rawCollectedQuestions.push(...questionList);
           }
         } catch (parseErr) {
           console.warn(`[Roux N Y] Failed to parse JSON chunk ${idx + 1}: ${parseErr.message}`);
@@ -599,25 +642,29 @@ CRITICAL QUALITY RULES:
       const completedChunkProgress = 5 + Math.round(((idx + 1) / chunks.length) * 90);
       await updateSourceProgressDetails(sourceId, {
         progress: completedChunkProgress,
-        questionsGeneratedCount: allGeneratedQuestions.length,
+        questionsGeneratedCount: rawCollectedQuestions.length,
         processedPages: (chunk.end - overallStart + 1),
-        statusMessage: `Chunk ${idx + 1}/${chunks.length} complete (${allGeneratedQuestions.length} MCQs generated so far)...`
+        statusMessage: `Chunk ${idx + 1}/${chunks.length} complete (${rawCollectedQuestions.length} MCQs generated)...`
       });
     }
     
-    if (allGeneratedQuestions.length === 0) {
+    if (rawCollectedQuestions.length === 0) {
       throw new Error('No valid questions could be generated from the document.');
     }
     
+    // Perform MCQ Taxonomy Ratio Balancing (40% factual, 40% conceptual, 20% applied)
+    const balancedQuestions = balanceMcqRatios(rawCollectedQuestions, rawCollectedQuestions.length);
+
     // Save all generated questions
     const finalData = await readData();
     const finalSource = finalData.sources.find(s => s.id === sourceId);
     if (!finalSource) return;
     
-    const newQuestions = allGeneratedQuestions.map(rawQ => {
-      const q = normalizeQuestion(rawQ);
+    const newQuestions = balancedQuestions.map(rawQ => {
+      const q = typeof normalizeQuestion === 'function' ? normalizeQuestion(rawQ) : rawQ;
       return {
         ...q,
+        correct_option: (q.correct_option || 'A').toUpperCase(),
         id: `Q-${Math.floor(2000 + Math.random() * 7000)}`,
         sourceId: finalSource.id,
         sourceTitle: finalSource.title || finalSource.filename,
@@ -914,7 +961,7 @@ async function api(req, res, url) {
 
   if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/api/status') {
     return send(res, 200, {
-      hasApiKey: !!process.env.GEMINI_API_KEY
+      hasApiKey: !!process.env.GEMINI_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GROQ_API_KEY
     });
   }
 

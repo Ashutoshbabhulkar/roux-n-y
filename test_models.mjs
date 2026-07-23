@@ -18,14 +18,17 @@ async function testFetchWithRetry() {
   ];
 
   for (const m of candidateModels) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
     let success = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         console.log(`Trying ${m} (Attempt ${attempt}/3)...`);
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 
+            'content-type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
           signal: AbortSignal.timeout(120000),
           body: JSON.stringify({ contents: [{ parts: [{ text: 'Respond with JSON array [{"status": "ok"}]' }] }] })
         });

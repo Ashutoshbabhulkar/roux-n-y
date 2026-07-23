@@ -1374,7 +1374,7 @@ function updateApiUI() {
       }
     }
     if (globalText) {
-      globalText.textContent = 'API connected (Gemini 2.0)';
+      globalText.textContent = 'API connected (Gemini & Fallbacks)';
       globalText.style.color = '#1f8255';
     }
     if (modalStatus) {
