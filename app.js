@@ -2014,7 +2014,7 @@ function exportTestToWord(testObj, isSolutionPaper) {
       <table class="header-table">
         <tr>
           <td colspan="2" style="text-align: center; background: #0f172a; color: white;">
-            <div class="brand-title" style="color: white;">SCALPEX — SURGICAL INTELLIGENCE BANK</div>
+            <div class="brand-title" style="color: white;">ROUX-N-Y — SURGICAL INTELLIGENCE BANK</div>
             <div class="paper-subtitle" style="color: #38bdf8;">${escapeHtml(testObj.title)}</div>
             <div style="font-size: 11pt; margin-top: 4pt; color: #94a3b8;">${paperTypeTitle}</div>
           </td>
